@@ -1,0 +1,17 @@
+backend/venv/
+backend/*.db
+frontend/node_modules/
+frontend/dist/
+.env
+.env.local
+*.pyc
+__pycache__/
+*.egg-info/
+*.log
+.DS_Store
+.vscode/
+.idea/
+frontend/.vite/
+*.swp
+*.swo
+/tmp/

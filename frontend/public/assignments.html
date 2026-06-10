@@ -1,0 +1,1373 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LinuxLab · Asignaciones</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+      transition: box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+    .card:hover {
+      border-color: rgba(148, 163, 184, 0.35);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+
+    .stat-value { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.025em; line-height: 1.2; }
+    .stat-label { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; }
+
+    .badge-vm {
+      display: inline-flex; align-items: center; gap: 0.375rem;
+      padding: 0.2rem 0.65rem; border-radius: 9999px;
+      font-size: 0.75rem; font-weight: 600;
+      background: #eef2ff; color: #4338ca;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+
+    .badge-vm.busy {
+      background: #fef2f2; color: #dc2626;
+    }
+
+    .border-color-azul { border-left-color: #3b82f6 !important; }
+    .border-color-verde { border-left-color: #10b981 !important; }
+    .border-color-rojo { border-left-color: #ef4444 !important; }
+    .border-color-amarillo { border-left-color: #eab308 !important; }
+
+    .pill-count {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 1.5rem; height: 1.5rem;
+      padding: 0 0.5rem; border-radius: 9999px;
+      font-size: 0.7rem; font-weight: 700;
+      background: #eef2ff; color: #4338ca;
+    }
+
+    .accordion-enter { max-height: 0; overflow: hidden; transition: max-height 0.35s ease, opacity 0.3s ease, margin 0.3s ease; opacity: 0; }
+    .accordion-enter.open { max-height: 2000px; opacity: 1; }
+    .accordion-enter > .inner { transform: translateY(-8px); transition: transform 0.35s ease; }
+    .accordion-enter.open > .inner { transform: translateY(0); }
+
+    .rotating-chevron { transition: transform 0.3s ease; display: inline-block; }
+    .rotating-chevron.open { transform: rotate(180deg); }
+
+    .input-premium {
+      border: 1px solid #e2e8f0; border-radius: 0.625rem;
+      padding: 0.5rem 0.875rem; font-size: 0.875rem;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      outline: none; width: 100%;
+      background: #fff;
+    }
+    .input-premium:focus {
+      border-color: #1e293b;
+      box-shadow: 0 0 0 3px rgba(30, 41, 59, 0.08);
+    }
+
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.5rem 1.125rem; border-radius: 0.625rem;
+      font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.01em;
+      background: #18181b; color: #fff;
+      border: none; cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .btn-primary:hover { background: #27272a; transform: translateY(-0.5px); box-shadow: 0 4px 12px rgba(24,24,27,0.2); }
+    .btn-primary:active { transform: translateY(0); box-shadow: none; }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    .btn-secondary {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.5rem 1rem; border-radius: 0.625rem;
+      font-size: 0.8125rem; font-weight: 500;
+      background: #fff; color: #334155;
+      border: 1px solid #e2e8f0; cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .btn-secondary:hover { background: #f8fafc; border-color: #cbd5e1; }
+    .btn-secondary:active { background: #f1f5f9; }
+
+    .btn-ghost {
+      display: inline-flex; align-items: center; gap: 0.375rem;
+      padding: 0.375rem 0.75rem; border-radius: 0.5rem;
+      font-size: 0.75rem; font-weight: 500; color: #64748b;
+      background: transparent; border: none; cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .btn-ghost:hover { background: #f1f5f9; color: #334155; }
+
+    .btn-danger {
+      display: inline-flex; align-items: center; gap: 0.375rem;
+      padding: 0.375rem 0.75rem; border-radius: 0.5rem;
+      font-size: 0.75rem; font-weight: 500; color: #dc2626;
+      background: transparent; border: none; cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .btn-danger:hover { background: #fef2f2; color: #b91c1c; }
+
+    .table-row { transition: background-color 0.15s ease; }
+    .table-row:hover { background-color: rgba(248,250,252,0.8); }
+    .table-row.selected { background-color: #f0f9ff; }
+
+    .empty-state-icon { color: #94a3b8; font-size: 2.5rem; margin-bottom: 0.75rem; }
+
+    #dropzoneArea {
+      border: 2px dashed #e2e8f0; border-radius: 12px;
+      padding: 1.25rem; text-align: center;
+      transition: all 0.25s ease; cursor: pointer;
+      background: #fafbfc;
+    }
+    #dropzoneArea.drag-over {
+      border-color: #3b82f6; background: #eff6ff;
+      transform: scale(1.01);
+    }
+    #dropzoneArea.has-file {
+      border-color: #10b981; border-style: solid;
+      background: #f0fdf4;
+    }
+
+    .toast {
+      display: flex; align-items: flex-start; gap: 0.75rem;
+      padding: 0.875rem 1rem; border-radius: 12px;
+      background: #fff; border: 1px solid rgba(148,163,184,0.25);
+      border-left: 4px solid #3b82f6;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.04);
+      min-width: 320px; max-width: 420px;
+      transform: translateX(120%); opacity: 0;
+      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .toast.show {
+      transform: translateX(0); opacity: 1;
+    }
+    .toast.success { border-left-color: #10b981; }
+    .toast.error { border-left-color: #ef4444; }
+    .toast.info { border-left-color: #3b82f6; }
+
+    .toast-close {
+      background: none; border: none; cursor: pointer;
+      color: #94a3b8; padding: 0.125rem; line-height: 1;
+      transition: color 0.15s; font-size: 1.1rem;
+    }
+    .toast-close:hover { color: #475569; }
+
+    .table-header-cell {
+      padding: 0.875rem 1rem; font-size: 0.7rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em; color: #64748b;
+      text-align: left; white-space: nowrap;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.3); backdrop-filter: blur(4px);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: auto; }
+    .modal-panel {
+      background: #fff; border-radius: 20px;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.12);
+      max-width: 520px; width: 90vw; padding: 1.75rem;
+      transform: scale(0.95) translateY(8px);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .modal-overlay.open .modal-panel { transform: scale(1) translateY(0); }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .pulse-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
+
+    .checkbox-premium {
+      appearance: none; width: 1rem; height: 1rem;
+      border: 1.5px solid #cbd5e1; border-radius: 0.25rem;
+      cursor: pointer; transition: all 0.15s ease;
+      display: inline-flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .checkbox-premium:checked {
+      background: #1e293b; border-color: #1e293b;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='white'%3E%3Cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3E%3C/svg%3E");
+      background-size: 0.75rem; background-position: center; background-repeat: no-repeat;
+    }
+
+    .unassign-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 2rem; height: 2rem; border-radius: 0.5rem;
+      color: #94a3b8; background: transparent;
+      border: none; cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .unassign-btn:hover { background: #fef2f2; color: #dc2626; }
+
+    .restore-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 2rem; height: 2rem; border-radius: 0.5rem;
+      color: #94a3b8; background: transparent;
+      border: none; cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .restore-btn:hover { background: #f0fdf4; color: #16a34a; }
+
+    #toastContainer {
+      position: fixed; top: 1rem; right: 1rem; z-index: 200;
+      display: flex; flex-direction: column; gap: 0.625rem;
+      pointer-events: none;
+    }
+    #toastContainer > * { pointer-events: auto; }
+  </style>
+</head>
+<body>
+
+  <!-- ====== LAYOUT WRAPPER ====== -->
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
+
+    <!-- ====== HEADER ====== -->
+    <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-2.5 mb-1">
+          <span class="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200/60 rounded-full px-3 py-0.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 pulse-dot"></span>
+            Sistema Activo
+          </span>
+          <span class="text-xs text-slate-400">v2.4</span>
+        </div>
+        <h1 class="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+          <i class="fas fa-users-gear text-slate-400 mr-2.5"></i>
+          Asignaciones de Laboratorio
+        </h1>
+        <p class="text-sm text-slate-500 mt-0.5">Gestión de máquinas virtuales y estudiantes por período académico</p>
+      </div>
+      <div class="flex items-center gap-3 shrink-0">
+        <div class="hidden sm:flex items-center gap-1.5 text-xs text-slate-400 bg-white border border-slate-200/60 rounded-lg px-3 py-1.5 card">
+          <i class="fas fa-calendar-alt text-slate-400"></i>
+          <span id="currentDate"></span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ====== STAT CARDS ====== -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="card p-4 lg:p-5">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="stat-label"><i class="fas fa-user-graduate mr-1"></i>Estudiantes Registrados</span>
+          <span class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500"><i class="fas fa-users text-sm"></i></span>
+        </div>
+        <div class="stat-value text-slate-900" id="studentsCount">0</div>
+      </div>
+      <div class="card p-4 lg:p-5">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="stat-label"><i class="fas fa-check-circle mr-1"></i>Estudiantes Asignados</span>
+          <span class="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600"><i class="fas fa-check text-sm"></i></span>
+        </div>
+        <div class="stat-value text-emerald-600" id="assignedCount">0</div>
+      </div>
+      <div class="card p-4 lg:p-5">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="stat-label"><i class="fas fa-hourglass-half mr-1"></i>Pendientes</span>
+          <span class="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600"><i class="fas fa-clock text-sm"></i></span>
+        </div>
+        <div class="stat-value text-amber-600" id="pendingCount">0</div>
+        <div class="text-[0.65rem] text-amber-600 font-medium mt-0.5" id="pendingHint"></div>
+      </div>
+      <div class="card p-4 lg:p-5">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="stat-label"><i class="fas fa-server mr-1"></i>VMs Disponibles</span>
+          <span class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600"><i class="fas fa-microchip text-sm"></i></span>
+        </div>
+        <div class="stat-value text-blue-600" id="availableVmsCount">0</div>
+        <div class="text-[0.65rem] text-slate-400 font-medium mt-0.5" id="vhostRangeDisplay">vhost-10 → ?</div>
+      </div>
+    </div>
+
+    <!-- ====== TOOLBAR ====== -->
+    <div class="card p-4 lg:p-5 space-y-4">
+      <!-- Row 1: Period + Actions -->
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="relative min-w-[120px]">
+          <i class="fas fa-calendar-day absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none"></i>
+          <input type="text" id="periodoInput" value="2026A"
+            class="input-premium pl-9 w-28 font-medium text-slate-800"
+            placeholder="Período" />
+        </div>
+
+        <button id="saveAssignmentBtn" class="btn-primary">
+          <i class="fas fa-plus-circle"></i>
+          Registrar Asignación
+        </button>
+
+        <div class="hidden sm:flex items-center gap-1.5 text-xs text-slate-400 bg-slate-50 rounded-lg px-3 py-1.5 border border-slate-100">
+          <i class="fas fa-arrow-right-arrow-left text-slate-400"></i>
+          <span id="periodStatus">Listo para asignar</span>
+        </div>
+
+        <div class="flex-1"></div>
+
+        <button id="loadDemoDataBtn" class="btn-secondary">
+          <i class="fas fa-flask"></i>
+          Datos Demo
+        </button>
+
+        <div class="relative">
+          <input type="file" id="csvFileInput" accept=".csv" class="hidden" />
+          <button id="uploadCsvBtn" class="btn-secondary">
+            <i class="fas fa-upload"></i>
+            Importar CSV
+          </button>
+        </div>
+
+        <button id="clearHistoryBtn" class="btn-ghost text-red-500 hover:text-red-600 hover:bg-red-50">
+          <i class="fas fa-trash-can"></i>
+          Limpiar
+        </button>
+      </div>
+
+      <!-- Dropzone -->
+      <div id="dropzoneArea" class="hidden">
+        <div class="flex flex-col items-center gap-2 py-2">
+          <i class="fas fa-cloud-arrow-up text-2xl text-slate-300"></i>
+          <span class="text-sm text-slate-500 font-medium">Arrastra un archivo CSV aquí o haz clic para seleccionar</span>
+          <span class="text-xs text-slate-400">Formato: nombre, email, código</span>
+        </div>
+      </div>
+
+      <!-- Row 2: Search + Filters + Bulk actions -->
+      <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+        <div class="flex items-center gap-3 flex-1 min-w-0">
+          <div class="relative flex-1 min-w-[180px] max-w-sm">
+            <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none"></i>
+            <input type="text" id="searchInput" placeholder="Buscar por nombre, email, código o VM..."
+              class="input-premium pl-9 py-2 text-sm" />
+          </div>
+          <select id="filterSelect" class="input-premium w-auto text-sm py-2">
+            <option value="todos">Todos</option>
+            <option value="asignados">Asignados</option>
+            <option value="sin_asignar">Sin Asignar</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-2" id="bulkActions" style="display:none">
+          <span class="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full" id="selectedCount">0 seleccionados</span>
+          <button id="bulkUnassignBtn" class="btn-danger text-xs">
+            <i class="fas fa-link-slash"></i>
+            Desvincular
+          </button>
+          <button id="bulkClearBtn" class="btn-ghost text-xs">
+            <i class="fas fa-xmark"></i>
+            Limpiar
+          </button>
+        </div>
+      </div>
+
+      <!-- Create Assignment Form (inline expandable) -->
+      <div id="assignmentForm" class="hidden border-t border-slate-100 pt-4">
+        <div class="flex items-center gap-2.5 mb-4">
+          <div class="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center text-white text-xs font-bold">+</div>
+          <h3 class="text-sm font-semibold text-slate-800">Nueva Asignación</h3>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-slate-500 mb-1.5"><i class="fas fa-server mr-1"></i>Máquina Virtual</label>
+            <select id="formVmSelect" class="input-premium text-sm">
+              <option value="">Seleccionar VM...</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-500 mb-1.5"><i class="fas fa-user mr-1"></i>Estudiante</label>
+            <select id="formStudentSelect" class="input-premium text-sm">
+              <option value="">Seleccionar Estudiante...</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-500 mb-1.5"><i class="fas fa-calendar mr-1"></i>Período</label>
+            <input type="text" id="formPeriodInput" value="2026A" class="input-premium text-sm font-medium" placeholder="Ej: 2026A" />
+          </div>
+        </div>
+        <div class="flex justify-end gap-2.5 mt-4">
+          <button id="cancelFormBtn" class="btn-secondary text-sm">Cancelar</button>
+          <button id="submitFormBtn" class="btn-primary text-sm"><i class="fas fa-check"></i> Asignar</button>
+        </div>
+      </div>
+
+      <!-- Auto-assign results -->
+      <div id="autoAssignResults" class="hidden border-t border-slate-100 pt-3"></div>
+    </div>
+
+    <!-- ====== TABLE: CURRENT ASSIGNMENTS ====== -->
+    <div class="card overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <i class="fas fa-table-list text-slate-400"></i>
+          <h2 class="text-sm font-semibold text-slate-700">Asignaciones Actuales</h2>
+          <span class="pill-count" id="activeAssignmentCount">0</span>
+        </div>
+        <button id="toggleHistoryBtn" class="btn-ghost text-xs">
+          <i class="fas fa-clock-rotate-left"></i>
+          Ver Historial
+        </button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr>
+              <th class="table-header-cell w-10">
+                <input type="checkbox" id="selectAllCheckbox" class="checkbox-premium" />
+              </th>
+              <th class="table-header-cell">Estudiante</th>
+              <th class="table-header-cell">Correo</th>
+              <th class="table-header-cell">Matrícula</th>
+              <th class="table-header-cell">Máquina Virtual</th>
+              <th class="table-header-cell">Estado VM</th>
+              <th class="table-header-cell">IP</th>
+              <th class="table-header-cell">Asignación</th>
+              <th class="table-header-cell w-20">Acción</th>
+            </tr>
+          </thead>
+          <tbody id="assignmentsTableBody">
+            <!-- Dynamic rows rendered here -->
+          </tbody>
+        </table>
+      </div>
+      <!-- Empty state -->
+      <div id="emptyState" class="flex flex-col items-center justify-center py-16 px-4">
+        <i class="fas fa-users-slash empty-state-icon"></i>
+        <p class="text-sm font-medium text-slate-500">No hay asignaciones registradas</p>
+        <p class="text-xs text-slate-400 mt-1">Usa "Datos Demo" o "Importar CSV" para comenzar</p>
+      </div>
+    </div>
+
+    <!-- ====== HISTORY ACCORDION ====== -->
+    <div id="historySection" class="hidden">
+      <div class="card overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <i class="fas fa-clock-rotate-left text-slate-400"></i>
+            <h2 class="text-sm font-semibold text-slate-700">Historial de Asignaciones</h2>
+            <span class="text-xs text-slate-400 font-mono" id="historyCount">0 períodos</span>
+          </div>
+          <button id="backToAssignmentsBtn" class="btn-ghost text-xs">
+            <i class="fas fa-arrow-left"></i>
+            Asignaciones Actuales
+          </button>
+        </div>
+        <div class="p-5 space-y-3" id="periodosAccordion">
+          <!-- Dynamic accordion items rendered here -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== IMPORT RESULT BANNER ====== -->
+    <div id="importResult" class="hidden card border-l-4 border-l-emerald-500 p-4">
+      <div class="flex items-start gap-3">
+        <i class="fas fa-check-circle text-emerald-500 mt-0.5"></i>
+        <div class="flex-1 text-sm text-slate-700" id="importResultText"></div>
+        <button id="closeImportResult" class="toast-close"><i class="fas fa-xmark"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== TOAST CONTAINER ====== -->
+  <div id="toastContainer"></div>
+
+  <!-- ====== MODAL OVERLAY ====== -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal-panel">
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <script>
+    // ============================================================
+    // DATA
+    // ============================================================
+
+    const VM_PREFIX = 'vhost';
+    const RESERVED_VM = 10;
+    const TOTAL_VMS = 25;
+    const VM_START = 10;
+    const VM_END = VM_START + TOTAL_VMS - 1;
+
+    const DEMO_STUDENTS = [
+      { name: 'Carlos Mendoza López', email: 'cmendoza@uns.edu.pe', code: '2024-001' },
+      { name: 'María Gutiérrez Rivas', email: 'mgutierrez@uns.edu.pe', code: '2024-002' },
+      { name: 'José Pérez Sánchez', email: 'jperez@uns.edu.pe', code: '2024-003' },
+      { name: 'Ana Torres Medina', email: 'atorres@uns.edu.pe', code: '2024-004' },
+      { name: 'Luis Fernández Castro', email: 'lfernandez@uns.edu.pe', code: '2024-005' },
+      { name: 'Carmen Rodríguez Vega', email: 'crodriguez@uns.edu.pe', code: '2024-006' },
+      { name: 'Diego García Morales', email: 'dgarcia@uns.edu.pe', code: '2024-007' },
+      { name: 'Sofía Ramírez Paredes', code: '2024-008' },
+      { name: 'Andrés Silva Campos', email: 'asilva@uns.edu.pe', code: '2024-009' },
+      { name: 'Valentina Ortiz Delgado', email: 'vortiz@uns.edu.pe', code: '2024-010' },
+      { name: 'Fernando Herrera Vega', email: 'fherrera@uns.edu.pe', code: '2024-011' },
+      { name: 'Gabriela Ríos Flores', code: '2024-012' },
+      { name: 'Miguel Ángel Cruz', email: 'mcruz@uns.edu.pe', code: '2024-013' },
+      { name: 'Isabel Morales Quintana', email: 'imorales@uns.edu.pe', code: '2024-014' },
+      { name: 'Ricardo Tapia Luna', email: 'rtapia@uns.edu.pe', code: '2024-015' },
+      { name: 'Patricia Aguilar Ríos', code: '2024-016' },
+      { name: 'Jorge Luis Castillo', email: 'jcastillo@uns.edu.pe', code: '2024-017' },
+      { name: 'Laura Espinoza Salazar', email: 'lespinoza@uns.edu.pe', code: '2024-018' },
+      { name: 'Roberto Vargas Méndez', email: 'rvargas@uns.edu.pe', code: '2024-019' },
+      { name: 'Diana Paredes Rojas', code: '2024-020' },
+      { name: 'Carlos Huamán Quispe', email: 'chuaman@uns.edu.pe', code: '2024-021' },
+      { name: 'Rosa María Flores', email: 'rflores@uns.edu.pe', code: '2024-022' },
+      { name: 'Pedro Infante Solís', code: '2024-023' },
+      { name: 'Lucía Vega Miranda', email: 'lvega@uns.edu.pe', code: '2024-024' },
+      { name: 'Martín Delgado Ríos', email: 'mdelgado@uns.edu.pe', code: '2024-025' },
+      { name: 'Camila Torres Ruiz', code: '2024-026' },
+      { name: 'Alejandro Pizarro Farfán', email: 'apizarro@uns.edu.pe', code: '2024-027' },
+      { name: 'Natalia Becerra Orozco', email: 'nbecerra@uns.edu.pe', code: '2024-028' },
+      { name: 'Felipe Zavala Contreras', code: '2024-029' },
+      { name: 'Ximena Cárdenas Lozano', email: 'xcardenas@uns.edu.pe', code: '2024-030' },
+    ];
+
+    // Build VM list
+    const ALL_VMS = [];
+    for (let n = VM_START; n <= VM_END; n++) {
+      ALL_VMS.push({ number: n, name: VM_PREFIX + '-' + n, reserved: n === RESERVED_VM, busy: false });
+    }
+
+    // State
+    let currentStudents = [];
+    let currentAssignments = []; // { id, studentIndex, vmNumber, period, assignedAt }
+    let assignmentHistory = [];
+    let assignmentIdCounter = 0;
+    let selectedIds = new Set();
+    let currentFilter = 'todos';
+    let currentSearch = '';
+    let isHistoryMode = false;
+
+    // ============================================================
+    // HELPERS
+    // ============================================================
+
+    function generateId() { return ++assignmentIdCounter; }
+
+    function getAvailableVMs() {
+      const busyVmNumbers = new Set(currentAssignments.filter(a => !a.releasedAt).map(a => a.vmNumber));
+      return ALL_VMS.filter(v => !v.reserved && !busyVmNumbers.has(v.number));
+    }
+
+    function getAssignedCount() {
+      return currentAssignments.filter(a => !a.releasedAt).length;
+    }
+
+    function getPendingCount() {
+      return Math.max(0, currentStudents.length - getAssignedCount());
+    }
+
+    function getStudentLabel(student) {
+      return student.name + (student.code ? ' (' + student.code + ')' : '');
+    }
+
+    function getStudentByIndex(idx) {
+      return currentStudents[idx];
+    }
+
+    // ============================================================
+    // CORE FUNCTIONS
+    // ============================================================
+
+    function assignVMsToStudents(period, studentList) {
+      const available = getAvailableVMs();
+      const unassigned = studentList.filter((_, idx) =>
+        !currentAssignments.some(a => a.studentIndex === idx && !a.releasedAt)
+      );
+
+      const created = [];
+      const errors = [];
+
+      for (const student of unassigned) {
+        if (available.length === 0) break;
+        const vm = available.shift();
+        const studentIdx = studentList.indexOf(student);
+        const assignment = {
+          id: generateId(),
+          studentIndex: studentIdx,
+          vmNumber: vm.number,
+          vmName: vm.name,
+          period: period,
+          assignedAt: new Date().toISOString(),
+        };
+        currentAssignments.push(assignment);
+        created.push({ student: student.name, vm: vm.name });
+      }
+
+      return { created, unassigned_students: unassigned.length - created.length };
+    }
+
+    function saveToHistory(period, assignments, label) {
+      const entry = {
+        id: 'hist-' + Date.now(),
+        period: period,
+        label: label || 'Asignación manual',
+        date: new Date().toISOString(),
+        responsible: localStorage.getItem('admin_username') || 'Administrador',
+        count: assignments.length,
+        vmRange: getVMRange(assignments),
+        assignments: assignments.map(a => ({
+          student: getStudentByIndex(a.studentIndex)?.name || 'Desconocido',
+          studentCode: getStudentByIndex(a.studentIndex)?.code || '',
+          vmName: a.vmName || VM_PREFIX + '-' + a.vmNumber,
+          period: a.period,
+          assignedAt: a.assignedAt,
+          releasedAt: a.releasedAt,
+        })),
+      };
+      assignmentHistory.unshift(entry);
+      renderAccordion();
+      return entry;
+    }
+
+    function getVMRange(assignments) {
+      if (!assignments.length) return '-';
+      const nums = assignments.map(a => a.vmNumber).sort((a,b) => a - b);
+      return VM_PREFIX + '-' + nums[0] + ' → ' + VM_PREFIX + '-' + nums[nums.length - 1];
+    }
+
+    function unassignAssignment(id) {
+      const assignment = currentAssignments.find(a => a.id === id);
+      if (!assignment) return;
+      assignment.releasedAt = new Date().toISOString();
+      selectedIds.delete(id);
+      renderAll();
+      showToast('success', 'Asignación liberada: ' + (assignment.vmName || VM_PREFIX + '-' + assignment.vmNumber));
+    }
+
+    function restoreAssignment(histEntry, assignmentData) {
+      const studentIdx = currentStudents.findIndex(s => s.name === assignmentData.student);
+      if (studentIdx === -1) {
+        showToast('error', 'Estudiante no encontrado en el listado actual');
+        return;
+      }
+      const vmNumber = parseInt(assignmentData.vmName.replace(VM_PREFIX + '-', ''));
+      if (isNaN(vmNumber)) {
+        showToast('error', 'VM inválida');
+        return;
+      }
+      const vm = ALL_VMS.find(v => v.number === vmNumber);
+      if (!vm || vm.reserved) {
+        showToast('error', 'VM no disponible o reservada');
+        return;
+      }
+      if (currentAssignments.some(a => a.vmNumber === vmNumber && !a.releasedAt)) {
+        showToast('error', 'La VM ' + assignmentData.vmName + ' ya está asignada');
+        return;
+      }
+      const assignment = {
+        id: generateId(),
+        studentIndex: studentIdx,
+        vmNumber: vmNumber,
+        vmName: assignmentData.vmName,
+        period: histEntry.period,
+        assignedAt: new Date().toISOString(),
+      };
+      currentAssignments.push(assignment);
+      renderAll();
+      showToast('success', 'Asignación restaurada: ' + assignmentData.student + ' → ' + assignmentData.vmName);
+    }
+
+    function clearAllData() {
+      if (!confirm('¿Estás seguro de limpiar todos los datos? Esta acción no se puede deshacer.')) return;
+      currentStudents = [];
+      currentAssignments = [];
+      assignmentHistory = [];
+      selectedIds = new Set();
+      renderAll();
+      renderAccordion();
+      showToast('info', 'Todos los datos han sido eliminados');
+    }
+
+    // ============================================================
+    // RENDER FUNCTIONS
+    // ============================================================
+
+    function renderAll() {
+      updateStats();
+      renderAssignmentsTable();
+      renderFormSelects();
+      updateBulkActions();
+    }
+
+    function updateStats() {
+      document.getElementById('studentsCount').textContent = currentStudents.length;
+      document.getElementById('assignedCount').textContent = getAssignedCount();
+      document.getElementById('pendingCount').textContent = getPendingCount();
+
+      const pending = getPendingCount();
+      document.getElementById('pendingHint').textContent = pending > 0 ? pending + ' estudiante' + (pending !== 1 ? 's' : '') + ' sin VM' : '';
+
+      const vms = getAvailableVMs();
+      document.getElementById('availableVmsCount').textContent = vms.length;
+      document.getElementById('vhostRangeDisplay').textContent =
+        vms.length > 0 ? VM_PREFIX + '-' + vms[0].number + ' → ' + VM_PREFIX + '-' + vms[vms.length - 1].number : 'Sin disponibles';
+
+      document.getElementById('activeAssignmentCount').textContent = getAssignedCount();
+    }
+
+    function renderAssignmentsTable() {
+      const tbody = document.getElementById('assignmentsTableBody');
+      const emptyState = document.getElementById('emptyState');
+
+      let filtered = [...currentAssignments];
+
+      // Filter by status
+      if (currentFilter === 'asignados') {
+        filtered = filtered.filter(a => !a.releasedAt);
+      } else if (currentFilter === 'sin_asignar') {
+        filtered = [];
+      }
+
+      // Search
+      if (currentSearch) {
+        const q = currentSearch.toLowerCase();
+        filtered = filtered.filter(a => {
+          const student = getStudentByIndex(a.studentIndex);
+          if (!student) return false;
+          return student.name.toLowerCase().includes(q) ||
+                 (student.email && student.email.toLowerCase().includes(q)) ||
+                 (student.code && student.code.toLowerCase().includes(q)) ||
+                 (a.vmName || VM_PREFIX + '-' + a.vmNumber).toLowerCase().includes(q);
+        });
+      }
+
+      // Sort: active first, then by student name
+      filtered.sort((a, b) => {
+        if ((a.releasedAt ? 1 : 0) !== (b.releasedAt ? 1 : 0)) return a.releasedAt ? 1 : -1;
+        const sa = getStudentByIndex(a.studentIndex)?.name || '';
+        const sb = getStudentByIndex(b.studentIndex)?.name || '';
+        return sa.localeCompare(sb);
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '';
+        emptyState.style.display = 'flex';
+        return;
+      }
+      emptyState.style.display = 'none';
+
+      tbody.innerHTML = filtered.map(a => {
+        const student = getStudentByIndex(a.studentIndex);
+        const vmName = a.vmName || VM_PREFIX + '-' + a.vmNumber;
+        const vmObj = ALL_VMS.find(v => v.name === vmName);
+        const isReleased = !!a.releasedAt;
+        const isSelected = selectedIds.has(a.id);
+
+        const stateColor = isReleased ? 'text-slate-400' :
+          (vmObj && !vmObj.reserved ? 'text-emerald-600' : 'text-slate-400');
+        const stateDot = isReleased ? 'bg-slate-300' :
+          (vmObj && !vmObj.reserved ? 'bg-emerald-500 pulse-dot' : 'bg-slate-300');
+        const stateLabel = isReleased ? 'Liberada' :
+          (vmObj && !vmObj.reserved ? 'Activa' : 'Reservada');
+
+        return '<tr class="table-row' + (isSelected ? ' selected' : '') + (isReleased ? ' opacity-50' : '') + '">' +
+          '<td class="px-4 py-3.5">' +
+            (!isReleased
+              ? '<input type="checkbox" class="checkbox-premium" data-id="' + a.id + '"' + (isSelected ? ' checked' : '') + ' />'
+              : '') +
+          '</td>' +
+          '<td class="px-4 py-3.5 font-medium text-slate-800">' + (student ? escHtml(student.name) : '—') + '</td>' +
+          '<td class="px-4 py-3.5 text-slate-500 text-xs">' + (student && student.email ? escHtml(student.email) : '<span class="text-slate-300 italic">sin correo</span>') + '</td>' +
+          '<td class="px-4 py-3.5 text-slate-500 text-xs font-mono">' + (student && student.code ? escHtml(student.code) : '—') + '</td>' +
+          '<td class="px-4 py-3.5"><span class="badge-vm' + (isReleased ? ' busy' : '') + '"><i class="fas fa-server text-[0.55rem]"></i>' + escHtml(vmName) + '</span></td>' +
+          '<td class="px-4 py-3.5"><div class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full ' + stateDot + '"></span><span class="text-xs font-medium ' + stateColor + '">' + stateLabel + '</span></div></td>' +
+          '<td class="px-4 py-3.5 text-slate-500 font-mono text-xs">' + (vmObj ? '10.0.0.' + (vmObj.number) : '—') + '</td>' +
+          '<td class="px-4 py-3.5 text-xs text-slate-400">' + new Date(a.assignedAt).toLocaleDateString('es-PE', { day: 'numeric', month: 'short' }) + '</td>' +
+          '<td class="px-4 py-3.5">' +
+            (!isReleased
+              ? '<button class="unassign-btn" data-id="' + a.id + '" title="Desvincular estudiante"><i class="fas fa-link-slash"></i></button>'
+              : '<span class="text-xs text-slate-400 italic">—</span>') +
+          '</td>' +
+        '</tr>';
+      }).join('');
+
+      // Attach event listeners
+      tbody.querySelectorAll('.checkbox-premium').forEach(cb => {
+        cb.addEventListener('change', function() {
+          const id = parseInt(this.dataset.id);
+          if (this.checked) selectedIds.add(id);
+          else selectedIds.delete(id);
+          updateBulkActions();
+          renderAssignmentsTable();
+        });
+      });
+
+      tbody.querySelectorAll('.unassign-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const id = parseInt(this.dataset.id);
+          const a = currentAssignments.find(x => x.id === id);
+          if (a) {
+            const student = getStudentByIndex(a.studentIndex);
+            showConfirmModal(
+              '<div class="flex flex-col items-center text-center mb-2">' +
+                '<div class="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-3"><i class="fas fa-link-slash text-red-600 text-lg"></i></div>' +
+                '<h3 class="text-lg font-semibold text-slate-800">Desvincular Estudiante</h3>' +
+                '<p class="text-sm text-slate-600 mt-2">' + escHtml(student ? student.name : '—') + ' dejará disponible <strong>' + escHtml(a.vmName || VM_PREFIX + '-' + a.vmNumber) + '</strong>.</p>' +
+              '</div>',
+              function() { unassignAssignment(id); closeModal(); }
+            );
+          }
+        });
+      });
+    }
+
+    function renderAccordion() {
+      const container = document.getElementById('periodosAccordion');
+      document.getElementById('historyCount').textContent = assignmentHistory.length + ' período' + (assignmentHistory.length !== 1 ? 's' : '');
+
+      if (assignmentHistory.length === 0) {
+        container.innerHTML =
+          '<div class="flex flex-col items-center justify-center py-12 text-slate-400">' +
+            '<i class="fas fa-clock-rotate-left text-3xl mb-3"></i>' +
+            '<p class="text-sm font-medium">Sin historial de asignaciones</p>' +
+            '<p class="text-xs mt-1">Las asignaciones guardadas aparecerán aquí</p>' +
+          '</div>';
+        return;
+      }
+
+      container.innerHTML = assignmentHistory.map((entry, idx) => {
+        const activeCount = entry.assignments.filter(a => !a.releasedAt).length;
+        const releasedCount = entry.assignments.filter(a => a.releasedAt).length;
+        const dateStr = new Date(entry.date).toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const isFirst = idx === 0;
+
+        return '<div class="card overflow-hidden border-slate-200/80 hover:border-slate-300/60 transition-colors">' +
+          '<button class="accordion-header w-full flex items-center justify-between gap-3 px-4 lg:px-5 py-3.5 text-left" data-period="' + entry.period + '">' +
+            '<div class="flex items-center gap-3 min-w-0 flex-1">' +
+              '<div class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center shrink-0"><span class="text-xs font-bold text-slate-600">' + entry.period.slice(-1) + '</span></div>' +
+              '<div class="min-w-0">' +
+                '<div class="flex items-center gap-2">' +
+                  '<span class="text-sm font-semibold text-slate-800">Período ' + escHtml(entry.period) + '</span>' +
+                  '<span class="pill-count">' + entry.count + '</span>' +
+                '</div>' +
+                '<div class="flex items-center gap-2.5 text-xs text-slate-400 mt-0.5">' +
+                  '<span><i class="fas fa-calendar-day mr-1"></i>' + dateStr + '</span>' +
+                  '<span class="w-1 h-1 rounded-full bg-slate-300"></span>' +
+                  '<span><i class="fas fa-user mr-1"></i>' + escHtml(entry.responsible) + '</span>' +
+                  '<span class="w-1 h-1 rounded-full bg-slate-300"></span>' +
+                  '<span class="font-mono text-slate-500"><i class="fas fa-ethernet mr-1"></i>' + escHtml(entry.vmRange) + '</span>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="flex items-center gap-2.5 shrink-0">' +
+              '<span class="text-xs text-slate-400 bg-slate-50 rounded-full px-2.5 py-0.5 border border-slate-100">' +
+                '<span class="text-emerald-600 font-medium">' + activeCount + '</span> activa' + (activeCount !== 1 ? 's' : '') +
+                (releasedCount > 0 ? ' · <span class="text-slate-400">' + releasedCount + '</span> liberada' + (releasedCount !== 1 ? 's' : '') : '') +
+              '</span>' +
+              '<span class="rotating-chevron' + (isFirst ? ' open' : '') + '"><i class="fas fa-chevron-down text-slate-400 text-sm"></i></span>' +
+            '</div>' +
+          '</button>' +
+
+          '<div class="accordion-enter' + (isFirst ? ' open' : '') + '" data-period="' + entry.period + '">' +
+            '<div class="inner border-t border-slate-100">' +
+              '<div class="overflow-x-auto">' +
+                '<table class="w-full text-xs">' +
+                  '<thead>' +
+                    '<tr class="bg-slate-50/60">' +
+                      '<th class="px-4 py-2.5 text-left font-semibold text-slate-500 uppercase tracking-wider">Estudiante</th>' +
+                      '<th class="px-4 py-2.5 text-left font-semibold text-slate-500 uppercase tracking-wider">VM</th>' +
+                      '<th class="px-4 py-2.5 text-left font-semibold text-slate-500 uppercase tracking-wider">Asignación</th>' +
+                      '<th class="px-4 py-2.5 text-left font-semibold text-slate-500 uppercase tracking-wider">Liberación</th>' +
+                      '<th class="px-4 py-2.5 text-left font-semibold text-slate-500 uppercase tracking-wider">Estado</th>' +
+                      '<th class="px-4 py-2.5 w-16"></th>' +
+                    '</tr>' +
+                  '</thead>' +
+                  '<tbody class="divide-y divide-slate-50">' +
+                    entry.assignments.map(ass => {
+                      const isReleased = !!ass.releasedAt;
+                      const assDate = new Date(ass.assignedAt).toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
+                      const relDate = ass.releasedAt ? new Date(ass.releasedAt).toLocaleDateString('es-PE', { day: 'numeric', month: 'short' }) : '—';
+
+                      return '<tr class="hover:bg-slate-50/60 transition-colors">' +
+                        '<td class="px-4 py-2.5 text-slate-700">' + escHtml(ass.student) + '<br/><span class="text-slate-400">' + escHtml(ass.studentCode) + '</span></td>' +
+                        '<td class="px-4 py-2.5"><span class="badge-vm' + (isReleased ? ' busy' : '') + '">' + escHtml(ass.vmName) + '</span></td>' +
+                        '<td class="px-4 py-2.5 text-slate-500">' + assDate + '</td>' +
+                        '<td class="px-4 py-2.5 text-slate-500">' + relDate + '</td>' +
+                        '<td class="px-4 py-2.5">' +
+                          (isReleased
+                            ? '<span class="text-slate-400"><i class="fas fa-circle-minus mr-1"></i>Liberada</span>'
+                            : '<span class="text-emerald-600 font-medium"><i class="fas fa-circle-check mr-1"></i>Activa</span>') +
+                        '</td>' +
+                        '<td class="px-4 py-2.5">' +
+                          (isReleased
+                            ? '<button class="restore-btn" data-period="' + entry.id + '" data-student="' + escHtml(ass.student) + '" data-vm="' + escHtml(ass.vmName) + '" title="Restaurar asignación"><i class="fas fa-rotate-left"></i></button>'
+                            : '') +
+                        '</td>' +
+                      '</tr>';
+                    }).join('') +
+                  '</tbody>' +
+                '</table>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+
+      // Attach accordion toggle
+      container.querySelectorAll('.accordion-header').forEach(header => {
+        header.addEventListener('click', function() {
+          const period = this.dataset.period;
+          togglePeriod(period);
+        });
+      });
+
+      // Attach restore buttons
+      container.querySelectorAll('.restore-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const entryId = this.dataset.period;
+          const studentName = this.dataset.student;
+          const vmName = this.dataset.vm;
+          const histEntry = assignmentHistory.find(e => e.id === entryId);
+          if (!histEntry) return;
+          const assData = histEntry.assignments.find(a => a.student === studentName && a.vmName === vmName);
+          if (!assData) return;
+          showConfirmModal(
+            '<div class="flex flex-col items-center text-center mb-2">' +
+              '<div class="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center mb-3"><i class="fas fa-rotate-left text-emerald-600 text-lg"></i></div>' +
+              '<h3 class="text-lg font-semibold text-slate-800">Restaurar Asignación</h3>' +
+              '<p class="text-sm text-slate-600 mt-2">' + escHtml(studentName) + ' → <strong>' + escHtml(vmName) + '</strong></p>' +
+            '</div>',
+            function() { restoreAssignment(histEntry, assData); closeModal(); }
+          );
+        });
+      });
+    }
+
+    function togglePeriod(period) {
+      const panels = document.querySelectorAll('.accordion-enter');
+      panels.forEach(p => {
+        if (p.dataset.period === period) {
+          p.classList.toggle('open');
+          const header = p.previousElementSibling;
+          if (header) {
+            const chevron = header.querySelector('.rotating-chevron');
+            if (chevron) chevron.classList.toggle('open');
+          }
+        }
+      });
+    }
+
+    function renderFormSelects() {
+      const vmSelect = document.getElementById('formVmSelect');
+      const studentSelect = document.getElementById('formStudentSelect');
+
+      const availableVms = getAvailableVMs();
+      vmSelect.innerHTML = '<option value="">Seleccionar VM...</option>' +
+        availableVms.map(v => '<option value="' + v.number + '">' + v.name + '</option>').join('');
+
+      const assignedStudentIndices = new Set(currentAssignments.filter(a => !a.releasedAt).map(a => a.studentIndex));
+      studentSelect.innerHTML = '<option value="">Seleccionar Estudiante...</option>' +
+        currentStudents.map((s, idx) =>
+          '<option value="' + idx + '"' + (assignedStudentIndices.has(idx) ? ' disabled class="text-slate-300"' : '') + '>' +
+            escHtml(s.name) + (s.code ? ' (' + escHtml(s.code) + ')' : '') +
+          '</option>'
+        ).join('');
+    }
+
+    function updateBulkActions() {
+      const container = document.getElementById('bulkActions');
+      const count = document.getElementById('selectedCount');
+      const size = selectedIds.size;
+      if (size > 0) {
+        container.style.display = 'flex';
+        count.textContent = size + ' seleccionado' + (size !== 1 ? 's' : '');
+      } else {
+        container.style.display = 'none';
+      }
+    }
+
+    function escHtml(str) {
+      if (!str) return '';
+      const d = document.createElement('div');
+      d.textContent = str;
+      return d.innerHTML;
+    }
+
+    // ============================================================
+    // TOAST SYSTEM
+    // ============================================================
+
+    function showToast(type, message) {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = 'toast ' + type;
+
+      const icons = {
+        success: 'fa-check-circle',
+        error: 'fa-circle-exclamation',
+        info: 'fa-circle-info',
+      };
+
+      toast.innerHTML =
+        '<i class="fas ' + (icons[type] || 'fa-circle-info') + ' text-' +
+          (type === 'success' ? 'emerald' : type === 'error' ? 'red' : 'blue') + '-500 mt-0.5"></i>' +
+        '<span class="flex-1 text-sm text-slate-700">' + escHtml(message) + '</span>' +
+        '<button class="toast-close" onclick="this.parentElement.remove()"><i class="fas fa-xmark"></i></button>';
+
+      container.appendChild(toast);
+
+      requestAnimationFrame(() => {
+        toast.classList.add('show');
+      });
+
+      setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 400);
+      }, 4000);
+    }
+
+    // ============================================================
+    // MODAL SYSTEM
+    // ============================================================
+
+    function showConfirmModal(html, onConfirm) {
+      const overlay = document.getElementById('modalOverlay');
+      const body = document.getElementById('modalBody');
+      body.innerHTML = html +
+        '<div class="flex justify-end gap-2.5 mt-6">' +
+          '<button id="modalCancelBtn" class="btn-secondary text-sm">Cancelar</button>' +
+          '<button id="modalConfirmBtn" class="btn-primary text-sm bg-red-600 hover:bg-red-700"><i class="fas fa-check"></i> Confirmar</button>' +
+        '</div>';
+      overlay.classList.add('open');
+
+      document.getElementById('modalCancelBtn').addEventListener('click', closeModal);
+      document.getElementById('modalConfirmBtn').addEventListener('click', onConfirm);
+    }
+
+    function closeModal() {
+      document.getElementById('modalOverlay').classList.remove('open');
+    }
+
+    // Also show custom modal for create assignment
+    function showModal(html) {
+      const overlay = document.getElementById('modalOverlay');
+      const body = document.getElementById('modalBody');
+      body.innerHTML = html;
+      overlay.classList.add('open');
+    }
+
+    // ============================================================
+    // CSV PARSING
+    // ============================================================
+
+    function parseCSV(text) {
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      const students = [];
+      const errors = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const parts = lines[i].split(',').map(p => p.trim().replace(/^"|"$/g, ''));
+        if (parts.length < 1) continue;
+        const name = parts[0];
+        const email = parts[1] || '';
+        const code = parts[2] || '';
+        if (!name) { errors.push('Línea ' + (i + 1) + ': nombre vacío'); continue; }
+        students.push({ name, email, code });
+      }
+
+      return { students, errors };
+    }
+
+    // ============================================================
+    // EVENT BINDING
+    // ============================================================
+
+    // Period input
+    document.getElementById('periodoInput').addEventListener('input', function() {
+      document.getElementById('formPeriodInput').value = this.value;
+      document.getElementById('periodStatus').textContent = 'Período: ' + (this.value || '—');
+    });
+
+    // Save / Create Assignment
+    document.getElementById('saveAssignmentBtn').addEventListener('click', function() {
+      const form = document.getElementById('assignmentForm');
+      form.classList.toggle('hidden');
+      if (!form.classList.contains('hidden')) {
+        renderFormSelects();
+        document.getElementById('formPeriodInput').value = document.getElementById('periodoInput').value;
+      }
+    });
+
+    document.getElementById('cancelFormBtn').addEventListener('click', function() {
+      document.getElementById('assignmentForm').classList.add('hidden');
+    });
+
+    document.getElementById('submitFormBtn').addEventListener('click', function() {
+      const vmNum = parseInt(document.getElementById('formVmSelect').value);
+      const studentIdx = parseInt(document.getElementById('formStudentSelect').value);
+      const period = document.getElementById('formPeriodInput').value.trim();
+
+      if (!vmNum || isNaN(studentIdx) || !period) {
+        showToast('error', 'Completa todos los campos del formulario');
+        return;
+      }
+
+      if (currentAssignments.some(a => a.vmNumber === vmNum && !a.releasedAt)) {
+        showToast('error', 'La VM ya está asignada');
+        return;
+      }
+
+      if (currentAssignments.some(a => a.studentIndex === studentIdx && !a.releasedAt)) {
+        showToast('error', 'El estudiante ya tiene una VM asignada');
+        return;
+      }
+
+      const vm = ALL_VMS.find(v => v.number === vmNum);
+      if (!vm || vm.reserved) {
+        showToast('error', 'VM no disponible o reservada');
+        return;
+      }
+
+      const assignment = {
+        id: generateId(),
+        studentIndex: studentIdx,
+        vmNumber: vmNum,
+        vmName: vm.name,
+        period: period,
+        assignedAt: new Date().toISOString(),
+      };
+      currentAssignments.push(assignment);
+      document.getElementById('assignmentForm').classList.add('hidden');
+      renderAll();
+      saveToHistory(period, [assignment], 'Asignación manual');
+      showToast('success', 'Asignación registrada: ' + getStudentByIndex(studentIdx).name + ' → ' + vm.name);
+    });
+
+    // Demo data
+    document.getElementById('loadDemoDataBtn').addEventListener('click', function() {
+      if (currentStudents.length > 0) {
+        showConfirmModal(
+          '<div class="flex flex-col items-center text-center mb-2">' +
+            '<div class="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mb-3"><i class="fas fa-flask text-amber-600 text-lg"></i></div>' +
+            '<h3 class="text-lg font-semibold text-slate-800">Cargar Datos Demo</h3>' +
+            '<p class="text-sm text-slate-600 mt-2">Se agregarán ' + DEMO_STUDENTS.length + ' estudiantes de prueba y se asignarán automáticamente. Los datos actuales se conservarán.</p>' +
+          '</div>',
+          function() { loadDemoData(); closeModal(); }
+        );
+      } else {
+        loadDemoData();
+      }
+    });
+
+    function loadDemoData() {
+      currentStudents = DEMO_STUDENTS.slice();
+
+      const result = assignVMsToStudents(document.getElementById('periodoInput').value || '2026A', currentStudents);
+      renderAll();
+      saveToHistory(document.getElementById('periodoInput').value || '2026A', currentAssignments.filter(a => !a.releasedAt), 'Carga inicial demo');
+
+      if (result.created.length > 0) {
+        showToast('success', result.created.length + ' estudiantes asignados automáticamente');
+      }
+      if (result.unassigned_students > 0) {
+        showToast('info', result.unassigned_students + ' estudiantes sin VM disponible');
+      }
+    }
+
+    // CSV upload
+    document.getElementById('uploadCsvBtn').addEventListener('click', function() {
+      document.getElementById('csvFileInput').click();
+    });
+
+    document.getElementById('csvFileInput').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        const text = ev.target.result;
+        const result = parseCSV(text);
+
+        if (result.students.length === 0) {
+          showToast('error', result.errors.length > 0 ? result.errors[0] : 'No se pudieron leer estudiantes del archivo');
+          return;
+        }
+
+        // Merge with existing students (avoid duplicates by code)
+        const existingCodes = new Set(currentStudents.map(s => s.code).filter(Boolean));
+        const newStudents = result.students.filter(s => !existingCodes.has(s.code));
+        currentStudents = currentStudents.concat(newStudents);
+
+        if (result.errors.length > 0) {
+          showToast('warning', result.students.length + ' importados, ' + result.errors.length + ' errores');
+        } else {
+          showToast('success', result.students.length + ' estudiantes importados');
+        }
+
+        renderAll();
+
+        // Show import result banner
+        const banner = document.getElementById('importResult');
+        document.getElementById('importResultText').innerHTML =
+          '<strong>' + newStudents.length + '</strong> nuevo' + (newStudents.length !== 1 ? 's' : '') + ' estudiante' + (newStudents.length !== 1 ? 's' : '') + ' importado' + (newStudents.length !== 1 ? 's' : '') +
+          (result.errors.length > 0 ? '<br/><span class="text-amber-600 text-xs">' + result.errors.length + ' error' + (result.errors.length !== 1 ? 'es' : '') + '</span>' : '');
+        banner.classList.remove('hidden');
+
+        // Auto-assign imported students
+        const period = document.getElementById('periodoInput').value || '2026A';
+        const autoResult = assignVMsToStudents(period, currentStudents);
+        if (autoResult.created.length > 0) {
+          showToast('success', autoResult.created.length + ' asignaciones automáticas creadas');
+          saveToHistory(period, currentAssignments.filter(a => !a.releasedAt && newStudents.some(ns => currentStudents.indexOf(ns) === a.studentIndex)), 'Importación CSV');
+          renderAll();
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    });
+
+    document.getElementById('closeImportResult').addEventListener('click', function() {
+      document.getElementById('importResult').classList.add('hidden');
+    });
+
+    // Clear history
+    document.getElementById('clearHistoryBtn').addEventListener('click', clearAllData);
+
+    // Search + Filter
+    document.getElementById('searchInput').addEventListener('input', function() {
+      currentSearch = this.value;
+      renderAssignmentsTable();
+    });
+
+    document.getElementById('filterSelect').addEventListener('change', function() {
+      currentFilter = this.value;
+      renderAssignmentsTable();
+    });
+
+    // Bulk actions
+    document.getElementById('bulkUnassignBtn').addEventListener('click', function() {
+      if (selectedIds.size === 0) return;
+      showConfirmModal(
+        '<div class="flex flex-col items-center text-center mb-2">' +
+          '<div class="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-3"><i class="fas fa-link-slash text-red-600 text-lg"></i></div>' +
+          '<h3 class="text-lg font-semibold text-slate-800">Desvincular ' + selectedIds.size + ' asignaciones</h3>' +
+          '<p class="text-sm text-slate-600 mt-2">Las VM seleccionadas quedarán disponibles para futuras asignaciones.</p>' +
+        '</div>',
+        function() {
+          const ids = Array.from(selectedIds);
+          ids.forEach(id => {
+            const a = currentAssignments.find(x => x.id === id);
+            if (a && !a.releasedAt) a.releasedAt = new Date().toISOString();
+          });
+          selectedIds = new Set();
+          renderAll();
+          showToast('success', ids.length + ' asignaciones liberadas');
+          closeModal();
+        }
+      );
+    });
+
+    document.getElementById('bulkClearBtn').addEventListener('click', function() {
+      selectedIds = new Set();
+      updateBulkActions();
+      renderAssignmentsTable();
+    });
+
+    // Select all
+    document.getElementById('selectAllCheckbox').addEventListener('change', function() {
+      const activeAssignments = currentAssignments.filter(a => !a.releasedAt);
+      if (this.checked) {
+        selectedIds = new Set(activeAssignments.map(a => a.id));
+      } else {
+        selectedIds = new Set();
+      }
+      updateBulkActions();
+      renderAssignmentsTable();
+    });
+
+    // Toggle history
+    document.getElementById('toggleHistoryBtn').addEventListener('click', function() {
+      isHistoryMode = !isHistoryMode;
+      document.getElementById('historySection').classList.toggle('hidden');
+      this.innerHTML = isHistoryMode
+        ? '<i class="fas fa-arrow-left"></i> Asignaciones Actuales'
+        : '<i class="fas fa-clock-rotate-left"></i> Ver Historial';
+      if (isHistoryMode) renderAccordion();
+    });
+
+    document.getElementById('backToAssignmentsBtn').addEventListener('click', function() {
+      document.getElementById('toggleHistoryBtn').click();
+    });
+
+    // Dropzone
+    const dropzone = document.getElementById('dropzoneArea');
+    const csvInput = document.getElementById('csvFileInput');
+
+    document.getElementById('uploadCsvBtn').addEventListener('mouseenter', function() {
+      dropzone.classList.remove('hidden');
+    });
+
+    document.getElementById('uploadCsvBtn').addEventListener('mouseleave', function(e) {
+      // Don't hide if hovering over dropzone
+      if (!dropzone.contains(e.relatedTarget) && e.relatedTarget !== dropzone) {
+        setTimeout(() => {
+          if (!dropzone.matches(':hover')) dropzone.classList.add('hidden');
+        }, 200);
+      }
+    });
+
+    dropzone.addEventListener('mouseleave', function() {
+      dropzone.classList.add('hidden');
+    });
+
+    dropzone.addEventListener('click', function() { csvInput.click(); });
+
+    dropzone.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      this.classList.add('drag-over');
+    });
+
+    dropzone.addEventListener('dragleave', function() {
+      this.classList.remove('drag-over');
+    });
+
+    dropzone.addEventListener('drop', function(e) {
+      e.preventDefault();
+      this.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.csv')) {
+        csvInput.files = e.dataTransfer.files;
+        csvInput.dispatchEvent(new Event('change'));
+        this.classList.add('has-file');
+        setTimeout(() => this.classList.remove('has-file'), 3000);
+      }
+    });
+
+    // Close modal on overlay click
+    document.getElementById('modalOverlay').addEventListener('click', function(e) {
+      if (e.target === this) closeModal();
+    });
+
+    // Close modal on Escape
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeModal();
+    });
+
+    // ============================================================
+    // INIT
+    // ============================================================
+
+    document.getElementById('currentDate').textContent =
+      new Date().toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    renderAll();
+    renderAccordion();
+
+    console.log('%c LinuxLab · Asignaciones ', 'background: #1e293b; color: white; font-size: 14px; padding: 6px 10px; border-radius: 4px;');
+    console.log('%c Módulo de asignaciones cargado correctamente', 'color: #64748b; font-size: 12px;');
+  </script>
+</body>
+</html>

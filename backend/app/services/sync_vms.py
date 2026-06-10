@@ -1,0 +1,149 @@
+import logging
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from app.database.models import VirtualMachine
+from app.libvirt_layer.connection import get_connection, HAVE_LIBVIRT
+from app.services.vm_service import build_ports
+
+logger = logging.getLogger(__name__)
+
+
+def _get_vm_ip(dom) -> str:
+    import libvirt
+    src_sources = [libvirt.VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE]
+    if hasattr(libvirt, "VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_ARP"):
+        src_sources.append(libvirt.VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_ARP)
+    for src in src_sources:
+        try:
+            addrs = dom.interfaceAddresses(src)
+            for iface_name, iface_data in addrs.items():
+                for addr_info in iface_data.get("addrs", []):
+                    if addr_info.get("type") in (0, getattr(libvirt, "VIR_IP_ADDR_TYPE_IPV4", 0)):
+                        ip = addr_info.get("addr", "")
+                        if ip:
+                            return ip
+        except Exception:
+            continue
+    return ""
+
+
+def _domain_to_vm_data(dom) -> dict:
+    from app.libvirt_layer.vm_manager import STATE_MAP
+    try:
+        state, max_mem, mem, vcpus, cpu_time = dom.info()
+        state_name = STATE_MAP.get(state, "unknown")
+        max_mem_mb = int(max_mem / 1024) if max_mem else 2048
+    except Exception as e:
+        logger.warning("Error obteniendo info de dominio: %s", e)
+        state_name = "unknown"
+        max_mem_mb = 2048
+        vcpus = 1
+
+    try:
+        xml = dom.XMLDesc(0)
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(xml)
+        mac_el = root.find(".//mac")
+        mac = mac_el.get("address", "") if mac_el is not None else ""
+    except Exception as e:
+        logger.warning("Error parseando XML del dominio: %s", e)
+        mac = ""
+
+    try:
+        name = dom.name()
+    except Exception as e:
+        logger.warning("Error obteniendo nombre del dominio: %s", e)
+        name = ""
+
+    ip = _get_vm_ip(dom)
+
+    num = 0
+    try:
+        num = int(name.split("-")[-1]) if "-" in name else 0
+    except ValueError:
+        pass
+
+    ports = build_ports(num) if num else []
+
+    return {
+        "name": name,
+        "mac_address": mac,
+        "ip_address": ip,
+        "vcpus": vcpus,
+        "ram_mb": max_mem_mb,
+        "current_state": state_name,
+        "template_name": "ubuntu-server-main",
+        "disk_gb": 10,
+        "ports": ports,
+    }
+
+
+async def sync_libvirt_domains(session: AsyncSession, setup_iptables: bool = False):
+    if not HAVE_LIBVIRT:
+        return 0, 0
+
+    conn = get_connection()
+    synced = 0
+    removed = 0
+
+    libvirt_names = set()
+    for domain_id in conn.listDomainsID():
+        try:
+            dom = conn.lookupByID(domain_id)
+            libvirt_names.add(dom.name())
+        except Exception as e:
+            logger.warning("Error lookup domain ID %s: %s", domain_id, e)
+
+    for name in conn.listDefinedDomains():
+        libvirt_names.add(name)
+
+    new_vms = []
+
+    for vm_name in libvirt_names:
+        try:
+            dom = conn.lookupByName(vm_name)
+            data = _domain_to_vm_data(dom)
+        except Exception as e:
+            logger.warning("Error obteniendo datos de dominio %s: %s", vm_name, e)
+            continue
+
+        is_template = (
+            "template" in vm_name.lower()
+            or vm_name == "ubuntu-server-main"
+        )
+
+        existing = await session.execute(
+            select(VirtualMachine).where(VirtualMachine.name == vm_name)
+        )
+        vm = existing.scalar_one_or_none()
+
+        if vm:
+            vm.mac_address = data["mac_address"]
+            vm.ip_address = data["ip_address"]
+            vm.current_state = data["current_state"]
+            vm.is_active = True
+            vm.is_template = is_template
+            if not vm.ports:
+                vm.ports = data["ports"]
+        else:
+            vm = VirtualMachine(**data, is_active=True, is_template=is_template)
+            session.add(vm)
+            new_vms.append(vm_name)
+
+        synced += 1
+
+    await session.commit()
+
+    if setup_iptables:
+        for vm_name in new_vms:
+            try:
+                num = int(vm_name.split("-")[-1])
+                from app.services.iptables_service import forward_range
+                forward_range(num, num)
+                logger.info("Reglas iptables creadas para %s", vm_name)
+            except (ValueError, IndexError):
+                logger.debug("No se pudo extraer número de VM %s para iptables", vm_name)
+            except Exception as e:
+                logger.warning("Error configurando iptables para %s: %s", vm_name, e)
+
+    return synced, removed

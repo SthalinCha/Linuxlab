@@ -1,0 +1,98 @@
+import logging
+import psutil
+from app.libvirt_layer.connection import get_connection
+
+logger = logging.getLogger(__name__)
+
+
+def get_host_metrics() -> dict:
+    conn = get_connection()
+
+    try:
+        info = conn.getInfo()
+    except Exception as e:
+        logger.warning("getInfo falló: %s", e)
+        info = [0, 0, 0, 0]
+
+    try:
+        mem_stats = conn.getMemoryStats(-1, 0)
+        total_mem_kb = mem_stats.get("total", 0)
+        free_mem_kb = mem_stats.get("free", 0)
+    except Exception as e:
+        logger.warning("getMemoryStats falló: %s", e)
+        total_mem_kb = 0
+        free_mem_kb = 0
+
+    cpu_percent = psutil.cpu_percent(interval=0.1)
+    cpu_count = psutil.cpu_count(logical=False)
+    load_1, load_5, load_15 = psutil.getloadavg()
+    disk_usage = psutil.disk_usage("/")
+    boot_time = psutil.boot_time()
+
+    import datetime
+    uptime_delta = datetime.datetime.now() - datetime.datetime.fromtimestamp(boot_time)
+    days = uptime_delta.days
+    hours, remainder = divmod(uptime_delta.seconds, 3600)
+    minutes = remainder // 60
+    uptime_str = f"{days}d {hours}h {minutes}m"
+
+    total_mem_mb = total_mem_kb // 1024
+    used_mem_mb = (total_mem_kb - free_mem_kb) // 1024
+    ram_percent = (used_mem_mb / total_mem_mb * 100) if total_mem_mb else 0
+
+    os_info = ""
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                if line.startswith("PRETTY_NAME="):
+                    os_info = line.split("=")[1].strip().strip('"')
+                    break
+    except Exception as e:
+        logger.debug("No se pudo leer /etc/os-release: %s", e)
+        os_info = "Desconocido"
+
+    cpu_temp = None
+    try:
+        temps = psutil.sensors_temperatures()
+        if "coretemp" in temps and temps["coretemp"]:
+            cpu_temp = round(temps["coretemp"][0].current, 1)
+    except Exception as e:
+        logger.debug("sensors_temperatures no disponible: %s", e)
+
+    total_vms = 0
+    running_vms = 0
+    def _is_vm(name):
+        return not ("template" in name.lower() or name == "ubuntu-server-main")
+    for name in conn.listDefinedDomains():
+        if _is_vm(name):
+            total_vms += 1
+    for domain_id in conn.listDomainsID():
+        try:
+            name = conn.lookupByID(domain_id).name()
+        except Exception as e:
+            logger.debug("Error lookup domain %s: %s", domain_id, e)
+            name = ""
+        if _is_vm(name):
+            total_vms += 1
+            running_vms += 1
+
+    return {
+        "hostname": conn.getHostname(),
+        "os": os_info,
+        "cpu_percent": round(cpu_percent, 1),
+        "cpu_temp": cpu_temp,
+        "cpu_count": cpu_count,
+        "ram_percent": round(ram_percent, 1),
+        "ram_used_gb": round(used_mem_mb / 1024, 1),
+        "ram_total_gb": round(total_mem_mb / 1024, 1),
+        "disk_percent": round(disk_usage.percent, 1),
+        "disk_used_gb": round(disk_usage.used / (1024**3), 1),
+        "disk_total_gb": round(disk_usage.total / (1024**3), 1),
+        "uptime": uptime_str,
+        "load_1": round(load_1, 2),
+        "load_5": round(load_5, 2),
+        "load_15": round(load_15, 2),
+        "total_vms": total_vms,
+        "running_vms": running_vms,
+        "stopped_vms": total_vms - running_vms,
+    }

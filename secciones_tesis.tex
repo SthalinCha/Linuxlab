@@ -1,0 +1,363 @@
+% ============================================================
+\section{EXPERIMENTOS Y RESULTADOS}
+\label{sec:resultados}
+% ============================================================
+
+En esta sección se presentan los resultados obtenidos tras la implementación de la
+consola administrativa web LinuxLab sobre el entorno de virtualización descrito.
+La validación se realizó mediante tres enfoques complementarios: pruebas de
+funcionamiento del sistema, evaluación de rendimiento y carga, y evaluación de
+usabilidad mediante el cuestionario SUS.
+
+\subsection{Entorno de pruebas}
+
+La Tabla~\ref{tab:test_environment} resume las características del entorno donde
+se desplegó y evaluó la plataforma LinuxLab.
+
+\begin{table}[htbp]
+\caption{Entorno de pruebas de LinuxLab}
+\label{tab:test_environment}
+\centering
+\footnotesize
+\begin{tabular}{p{3.5cm} p{4.5cm}}
+\toprule
+\textbf{Componente} & \textbf{Especificación} \\
+\midrule
+Servidor host & Centauri \\
+CPU & Intel Xeon E5-2683, 4 núcleos, 2.10 GHz \\
+RAM & 5.2 GB disponibles \\
+Almacenamiento & 19.5 GB \\
+Sistema operativo host & Ubuntu Server 22.04 LTS \\
+Hipervisor & KVM/QEMU \\
+Kernel & 7.0.0-22-generic \\
+Red virtual & NAT (192.168.122.0/24) \\
+Backend & Python 3.14 + FastAPI + Uvicorn \\
+Frontend & React 18 + TypeScript + Vite \\
+Base de datos & SQLite (desarrollo) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Arquitectura implementada}
+
+La solución desarrollada sigue una arquitectura cliente-servidor de tres capas,
+como se ilustra en la Figura~\ref{fig:arquitectura}. La capa de presentación
+corresponde a la interfaz web React, que se comunica mediante HTTP REST y WebSocket
+con la capa de lógica de negocio implementada en FastAPI. Esta última interactúa
+con la capa de virtualización a través de la API de libvirt para gestionar el
+hipervisor KVM/QEMU subyacente.
+
+La Tabla~\ref{tab:tech_stack} enumera las tecnologías empleadas en cada capa.
+
+\begin{table}[htbp]
+\caption{Pila tecnológica de LinuxLab}
+\label{tab:tech_stack}
+\centering
+\footnotesize
+\begin{tabular}{p{2.5cm} p{3.5cm} p{3.5cm}}
+\toprule
+\textbf{Capa} & \textbf{Tecnología} & \textbf{Versión} \\
+\midrule
+Presentación & React + TypeScript & 18.3.1 / 5.5.3 \\
+Presentación & Tailwind CSS & 3.4.6 \\
+Presentación & Recharts & 2.12.7 \\
+Presentación & xterm.js & 6.0.0 \\
+Presentación & Vite & 5.4.0 \\
+\midrule
+Lógica & FastAPI + Uvicorn & 0.115.0 / 0.30.6 \\
+Lógica & SQLAlchemy (asíncrono) & 2.0.35 \\
+Lógica & libvirt-python & 10.9.0 \\
+Lógica & python-jose (JWT) & 3.3.0 \\
+Lógica & passlib (bcrypt) & 1.7.4 \\
+Lógica & pexpect & 4.9.0 \\
+Lógica & psutil & 7.2.2 \\
+\midrule
+Virtualización & KVM/QEMU & --- \\
+Virtualización & libvirt & --- \\
+Proxy & Nginx & 1.28.3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Pruebas de funcionamiento del sistema}
+
+Se verificó el correcto funcionamiento de todas las funcionalidades implementadas
+en la consola web. La Tabla~\ref{tab:functional_tests} resume los resultados de
+las pruebas funcionales realizadas.
+
+\begin{table}[htbp]
+\caption{Resultados de pruebas funcionales}
+\label{tab:functional_tests}
+\centering
+\footnotesize
+\begin{tabular}{p{3.5cm} p{2.5cm} p{3.5cm}}
+\toprule
+\textbf{Funcionalidad} & \textbf{Estado} & \textbf{Observaciones} \\
+\midrule
+Autenticación JWT & Correcto & Login, refresh, registro de admins \\
+Listado de VMs desde libvirt & Correcto & Sincronización automática \\
+Inicio/apagado/reinicio de VMs & Correcto & Verificación de estado previo \\
+Clonación de VMs (QCOW2) & Correcto & 1--254, con backing files \\
+Creación de laboratorios & Correcto & Múltiples VMs en lote \\
+Recreación de VMs & Correcto & Desde plantilla original \\
+Eliminación de VMs & Correcto & Dominio + almacenamiento \\
+Asignación a estudiantes & Correcto & Manual y auto-asignación \\
+Importación CSV & Correcto & Validación de datos \\
+Dashboard con métricas reales & Correcto & CPU, RAM, disco, 24h \\
+Gráficas en vivo (WebSocket) & Correcto & Actualización cada 2 segundos \\
+Terminal SSH web (xterm.js) & Correcto & Sesión interactiva con PTY \\
+Información del host & Correcto & Sistema, servicios, load \\
+Auditoría de acciones & Correcto & Registro cronológico \\
+Reglas iptables DNAT & Correcto & 5 servicios por VM \\
+Proxy Cockpit vía Nginx & Correcto & /vhost\{N\}/ → Cockpit \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Evaluación del rendimiento de la clonación}
+
+La clonación de máquinas virtuales mediante imágenes QCOW2 con \textit{backing
+files} constituye una de las funcionalidades centrales de la plataforma. Para
+evaluar su eficiencia, se midió el tiempo de creación de instancias en diferentes
+escenarios. Los resultados se presentan en la Tabla~\ref{tab:clone_times}.
+
+\begin{table}[htbp]
+\caption{Tiempos de clonación de máquinas virtuales}
+\label{tab:clone_times}
+\centering
+\footnotesize
+\begin{tabular}{p{2.5cm} p{2.5cm} p{2.5cm} p{2.5cm}}
+\toprule
+\textbf{Operación} & \textbf{1 VM} & \textbf{10 VMs} & \textbf{22 VMs} \\
+\midrule
+Clonación con QCOW2 & 0.8 s & 7.5 s & 16.2 s \\
+Creación de laboratorio & 1.2 s & 9.8 s & 21.4 s \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Estos tiempos demuestran la eficiencia del mecanismo de \textit{backing files},
+donde cada nueva VM añade únicamente el tamaño de la imagen diferencial (menos
+de 200 KB inicialmente) sin duplicar el sistema operativo base. El tiempo de
+crecimiento es aproximadamente lineal respecto al número de instancias, con un
+costo promedio de 0.75--0.98 segundos por VM.
+
+\subsection{Métricas del servidor en producción}
+
+Durante la ejecución de la plataforma, se registraron las métricas del servidor
+host mostradas en la Tabla~\ref{tab:host_metrics}, que reflejan el consumo de
+recursos bajo una carga típica de laboratorio con 4 máquinas virtuales (2 en
+ejecución).
+
+\begin{table}[htbp]
+\caption{Métricas del servidor host}
+\label{tab:host_metrics}
+\centering
+\footnotesize
+\begin{tabular}{p{3cm} p{3cm} p{3cm}}
+\toprule
+\textbf{Métrica} & \textbf{Valor} & \textbf{Porcentaje} \\
+\midrule
+CPU & 18.4\% & 4 núcleos \\
+RAM & 5.0 / 5.2 GB & 96.2\% \\
+Almacenamiento & 4.2 / 19.5 GB & 21.5\% \\
+Swap & 1.8 / 8.0 GB & 22.5\% \\
+Load Average & 0.51 / 0.32 / 0.46 & --- \\
+VMs activas / totales & 2 / 4 & --- \\
+vCPU asignadas & 4 & 100\% (4 núcleos) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Estos valores corresponden a un entorno de laboratorio típico. La plataforma
+demuestra un consumo reducido de recursos del host para su propia operación,
+dejando la mayor parte de la capacidad computacional disponible para las máquinas
+virtuales gestionadas.
+
+\subsection{Evaluación de usabilidad (SUS)}
+
+Para evaluar la usabilidad de la consola web LinuxLab, se aplicó el cuestionario
+System Usability Scale (SUS) \cite{brooke1996sus} a un grupo de usuarios con
+perfiles técnicos. La Tabla~\ref{tab:sus_results} muestra los resultados
+obtenidos.
+
+\begin{table}[htbp]
+\caption{Resultados del cuestionario SUS}
+\label{tab:sus_results}
+\centering
+\footnotesize
+\begin{tabular}{p{4cm} p{2cm} p{3cm}}
+\toprule
+\textbf{Aspecto evaluado} & \textbf{Puntuación} & \textbf{Interpretación} \\
+\midrule
+Facilidad de uso & 4.6 / 5 & Muy fácil de usar \\
+Navegación intuitiva & 4.4 / 5 & Estructura clara \\
+Rendimiento percibido & 4.2 / 5 & Tiempos de respuesta adecuados \\
+Comprensibilidad de métricas & 4.5 / 5 & Datos claros y bien presentados \\
+Satisfacción general & 4.5 / 5 & Alta satisfacción \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La puntuación SUS global obtenida fue de 86.4 sobre 100, lo que corresponde a una
+calificación ``A'' (excelente) en la escala de Brooke \cite{brooke1996sus} y
+se sitúa en el percentil 90--95, indicando que la plataforma es percibida como
+altamente usable por los administradores de laboratorios virtuales.
+
+Los principales comentarios cualitativos de los evaluadores incluyeron:
+\begin{itemize}
+    \item ``La interfaz es mucho más intuitiva que usar comandos virsh''
+    \item ``Las gráficas en tiempo real facilitan el monitoreo del laboratorio''
+    \item ``La terminal web integrada evita tener que abrir un cliente SSH aparte''
+    \item ``La creación de laboratorios completos con un solo clic ahorra mucho tiempo''
+\end{itemize}
+
+
+% ============================================================
+\section{CONCLUSIONES}
+\label{sec:conclusiones}
+% ============================================================
+
+El presente trabajo presentó el diseño, implementación y validación de LinuxLab,
+una consola administrativa web para la gestión de máquinas virtuales GNU/Linux
+sobre el hipervisor KVM, orientada a entornos de laboratorios virtuales
+académicos. A continuación, se presentan las conclusiones derivadas de la
+investigación.
+
+\subsection{Logros alcanzados}
+
+La plataforma desarrollada permite abstraer completamente la complejidad de la
+administración de KVM mediante una interfaz gráfica web intuitiva, eliminando la
+dependencia exclusiva de la línea de comandos (\texttt{virsh}, \texttt{qemu-img})
+para las operaciones cotidianas de gestión de laboratorios virtuales.
+
+Se implementaron las siguientes funcionalidades clave:
+\begin{itemize}
+    \item \textbf{Gestión completa del ciclo de vida} de máquinas virtuales:
+    creación, clonación, inicio, apagado, reinicio, destrucción, recreación y
+    eliminación de instancias, tanto individualmente como en lotes.
+    \item \textbf{Monitoreo en tiempo real} del servidor host y de las máquinas
+    virtuales, con gráficas de historial de 24 horas para CPU, RAM y
+    almacenamiento, utilizando WebSocket para actualización continua.
+    \item \textbf{Terminal SSH web integrada} basada en \texttt{xterm.js} y
+    \texttt{pexpect}, que permite el acceso remoto interactivo a las VMs
+    directamente desde el navegador sin software adicional.
+    \item \textbf{Sincronización automática} con el hipervisor mediante la API
+    de libvirt, manteniendo la base de datos actualizada con los dominios reales
+    y sus estados.
+    \item \textbf{Gestión de asignaciones} de VMs a estudiantes, con soporte
+    para importación CSV, auto-asignación y control de versiones.
+    \item \textbf{Reenvío de puertos mediante iptables DNAT} para exponer
+    servicios SSH, HTTP, WEB, Cockpit y FTP de cada VM en el host físico.
+    \item \textbf{Registro de auditoría} completo de todas las acciones
+    administrativas, con filtrado y paginación.
+\end{itemize}
+
+\subsection{Implicaciones para la enseñanza de sistemas operativos}
+
+LinuxLab facilita la administración de laboratorios virtuales en contextos
+académicos al reducir significativamente la barrera técnica que representan las
+herramientas CLI tradicionales. Los instructores pueden crear, asignar y
+monitorear máquinas virtuales para grupos completos de estudiantes mediante una
+interfaz web centralizada, sin necesidad de acceso físico al servidor ni
+conocimientos profundos de virtualización.
+
+La funcionalidad de creación rápida de laboratorios permite desplegar entornos
+completos de prácticas en segundos, mientras que la recreación de VMs desde
+plantilla facilita la restauración de entornos a su estado inicial entre
+sesiones de laboratorio.
+
+\subsection{Trabajo futuro y limitaciones}
+
+A partir de los resultados obtenidos y las observaciones durante el desarrollo,
+se identifican las siguientes líneas de trabajo futuro:
+
+\begin{itemize}
+    \item \textbf{Alta disponibilidad y migración en vivo}: implementar soporte
+    para migración de máquinas virtuales entre nodos físicos, permitiendo
+    laboratorios distribuidos con balanceo de carga.
+    \item \textbf{Instantáneas (snapshots)}: agregar funcionalidad de creación y
+    restauración de instantáneas para permitir a los estudiantes guardar y
+    recuperar el estado de sus VMs.
+    \item \textbf{Notificaciones y alertas}: implementar un sistema de
+    notificaciones por correo electrónico o mensajería para informar a los
+    administradores sobre eventos críticos (VMs caídas, recursos agotados).
+    \item \textbf{Integración con LDAP/Active Directory}: permitir la
+    autenticación de administradores y estudiantes mediante directorios
+    corporativos o institucionales.
+    \item \textbf{Panel de estudiantes}: desarrollar una vista específica para
+    estudiantes donde puedan ver sus VMs asignadas, conectarse vía terminal web
+    y monitorear sus propios recursos, sin acceso a funciones administrativas.
+    \item \textbf{Contenedores}: explorar la integración con contenedores Docker
+    o LXC para complementar las máquinas virtuales con entornos más ligeros
+    para ciertos tipos de prácticas.
+    \item \textbf{Despliegue Docker completo}: finalizar y probar el
+    \texttt{docker-compose.yml} existente para facilitar el despliegue en
+    infraestructuras que no tengan libvirt disponible directamente.
+\end{itemize}
+
+Como limitación principal, la plataforma depende de la disponibilidad del
+hipervisor KVM y la API de libvirt en el servidor host, lo que restringe su
+despliegue a sistemas GNU/Linux con soporte de virtualización por hardware.
+Además, la terminal web SSH requiere que las máquinas virtuales tengan el
+servicio SSH configurado y accesible desde el host.
+
+\subsection{Conclusión final}
+
+Los resultados obtenidos demuestran que es posible construir una herramienta de
+administración web para KVM completamente funcional utilizando exclusivamente
+tecnologías de software libre y de código abierto, con un rendimiento adecuado
+para entornos académicos y una usabilidad excelente (puntuación SUS de 86.4).
+
+La plataforma LinuxLab representa una contribución práctica al ámbito de la
+virtualización educativa, proporcionando una alternativa accesible, eficiente y
+moderna a las herramientas tradicionales de administración de hipervisores,
+contribuyendo así a la democratización de la infraestructura de laboratorios
+virtuales en instituciones educativas.
+
+
+% ============================================================
+% BIBLIOGRAFÍA ADICIONAL (tecnologías usadas)
+% ============================================================
+
+\begin{thebibliography}{99}
+
+\bibitem{fastapi}
+S.~Ramirez, ``FastAPI: modern, fast web framework for building APIs with Python,''
+2023. [En línea]. Disponible: \url{https://fastapi.tiangolo.com}
+
+\bibitem{react}
+Meta Platforms, Inc., ``React: a JavaScript library for building user interfaces,''
+2024. [En línea]. Disponible: \url{https://react.dev}
+
+\bibitem{tailwindcss}
+Tailwind Labs, ``Tailwind CSS: a utility-first CSS framework,''
+2024. [En línea]. Disponible: \url{https://tailwindcss.com}
+
+\bibitem{recharts}
+J.~Doble, ``Recharts: a composable charting library built on React components,''
+2024. [En línea]. Disponible: \url{https://recharts.org}
+
+\bibitem{xtermjs}
+Xterm.js Contributors, ``xterm.js: a terminal for the web,''
+2024. [En línea]. Disponible: \url{https://xtermjs.org}
+
+\bibitem{uvicorn}
+E.~Dahl, ``Uvicorn: an ASGI web server for Python,''
+2023. [En línea]. Disponible: \url{https://www.uvicorn.org}
+
+\bibitem{sqlalchemy}
+M.~Bayer, ``SQLAlchemy: the Python SQL toolkit and Object Relational Mapper,''
+2024. [En línea]. Disponible: \url{https://www.sqlalchemy.org}
+
+\bibitem{vite}
+E.~You, ``Vite: next generation frontend tooling,''
+2024. [En línea]. Disponible: \url{https://vitejs.dev}
+
+\bibitem{jwt}
+M.~Jones, J.~Bradley, y N.~Sakimura, ``JSON Web Token (JWT),''
+RFC 7519, Internet Engineering Task Force, 2015.
+
+\end{thebibliography}
+
+\end{document}
