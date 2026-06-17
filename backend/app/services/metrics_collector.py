@@ -4,7 +4,10 @@ import logging
 import psutil
 from collections import deque
 from threading import Lock
-from app.libvirt_layer.connection import get_connection, HAVE_LIBVIRT
+from app.core.libvirt.connection import get_connection, HAVE_LIBVIRT
+from app.database.session import async_session
+from app.models.host_metric import HostMetric
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +20,7 @@ class MetricsCollector:
         self._lock = Lock()
         self._vm_cpu_cache: dict[str, dict] = {}
 
-    def collect(self):
+    async def collect(self):
         cpu = psutil.cpu_percent(interval=0)
         ram = psutil.virtual_memory().percent
         disk = psutil.disk_usage("/").percent
@@ -29,26 +32,45 @@ class MetricsCollector:
             self.ram_history.append({"time": timestamp, "ram": round(ram, 1)})
             self.disk_history.append({"time": timestamp, "disk": round(disk, 1)})
 
+        try:
+            async with async_session() as session:
+                session.add(HostMetric(
+                    cpu_percent=round(cpu, 1),
+                    ram_percent=round(ram, 1),
+                    disk_percent=round(disk, 1),
+                ))
+                await session.commit()
+        except Exception as e:
+            logger.error("Error persisting host metrics: %s", e)
+
     async def start_background_collection(self, interval=300):
-        self.collect()
+        await self.collect()
         while True:
             await asyncio.sleep(interval)
-            self.collect()
+            await self.collect()
 
-    def get_history(self):
+    async def get_history(self, session=None):
+        if session is not None:
+            result = await session.execute(
+                select(HostMetric).order_by(HostMetric.timestamp.desc()).limit(288)
+            )
+            rows = result.scalars().all()
+            if rows:
+                rows.reverse()
+                cpu = [{"time": r.timestamp.strftime("%H:%M"), "cpu": round(r.cpu_percent, 1)} for r in rows]
+                ram = [{"time": r.timestamp.strftime("%H:%M"), "ram": round(r.ram_percent, 1)} for r in rows]
+                return {"cpu_history": cpu, "ram_history": ram}
+
         with self._lock:
             cpu = list(self.cpu_history)
             ram = list(self.ram_history)
-            disk = list(self.disk_history)
         if not cpu:
             c = psutil.cpu_percent(interval=0)
             r = psutil.virtual_memory().percent
-            d = psutil.disk_usage("/").percent
             t = time.strftime("%H:%M")
             cpu = [{"time": t, "cpu": round(c, 1)}]
             ram = [{"time": t, "ram": round(r, 1)}]
-            disk = [{"time": t, "disk": round(d, 1)}]
-        return {"cpu_history": cpu, "ram_history": ram, "disk_history": disk}
+        return {"cpu_history": cpu, "ram_history": ram}
 
     def get_vm_stats(self):
         if not HAVE_LIBVIRT:

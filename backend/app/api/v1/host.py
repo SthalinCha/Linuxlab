@@ -1,48 +1,53 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.security import get_current_admin
-from app.database.models import Admin, VirtualMachine
+from app.core.security import get_current_user
+from app.models import User, VirtualMachine
 from app.database.session import get_session
-from app.services.host_service import get_host_metrics
-from app.libvirt_layer.connection import HAVE_LIBVIRT
+from app.services.host_service import get_host_metrics_async as get_host_metrics
+from app.core.libvirt.connection import HAVE_LIBVIRT
+import asyncio
 import subprocess
 import psutil
 
 router = APIRouter()
 
 
-def _service_status(name: str) -> str:
+async def _service_status(name: str) -> str:
     try:
-        r = subprocess.run(["systemctl", "is-active", name], capture_output=True, text=True, timeout=5)
+        r = await asyncio.to_thread(
+            subprocess.run, ["systemctl", "is-active", name],
+            capture_output=True, text=True, timeout=5
+        )
         return r.stdout.strip()
     except Exception:
         return "unknown"
 
 
 def _read_os_release() -> str:
-    try:
-        with open("/etc/os-release") as f:
-            for line in f:
-                if line.startswith("PRETTY_NAME="):
-                    return line.split("=")[1].strip().strip('"')
-    except Exception:
-        pass
+    for os_path in ("/host-os-release", "/etc/os-release"):
+        try:
+            with open(os_path) as f:
+                for line in f:
+                    if line.startswith("PRETTY_NAME="):
+                        return line.split("=")[1].strip().strip('"')
+        except Exception:
+            pass
     return ""
 
 
 @router.get("")
 async def get_host_info(
-    admin: Admin = Depends(get_current_admin),
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    metrics = get_host_metrics()
+    metrics = await get_host_metrics()
     services = {
-        "libvirtd": _service_status("libvirtd"),
-        "qemu": _service_status("qemu-kvm"),
-        "nginx": _service_status("nginx"),
-        "cockpit": _service_status("cockpit"),
-        "ssh": _service_status("ssh"),
+        "libvirtd": await _service_status("libvirtd"),
+        "qemu": await _service_status("qemu-kvm"),
+        "nginx": await _service_status("nginx"),
+        "cockpit": await _service_status("cockpit"),
+        "ssh": await _service_status("ssh"),
     }
 
     uname = ""
@@ -74,7 +79,7 @@ async def get_host_info(
 
     vcpu_result = await session.execute(
         select(func.coalesce(func.sum(VirtualMachine.vcpus), 0))
-        .where(VirtualMachine.is_active == True, VirtualMachine.is_template == False)
+        .where(VirtualMachine.deleted_at.is_(None), VirtualMachine.template_id.is_(None))
     )
     vcpu_allocated = vcpu_result.scalar() or 0
 
@@ -106,12 +111,15 @@ async def get_host_info(
 
 
 @router.post("/service/{service_name}/restart")
-async def restart_service(service_name: str, admin: Admin = Depends(get_current_admin)):
+async def restart_service(service_name: str, user: User = Depends(get_current_user)):
     allowed = ["libvirtd", "qemu-kvm", "nginx", "cockpit", "ssh"]
     if service_name not in allowed:
         raise HTTPException(status_code=422, detail=f"Servicio no permitido: {service_name}")
     try:
-        r = subprocess.run(["systemctl", "restart", service_name], capture_output=True, text=True, timeout=30)
+        r = await asyncio.to_thread(
+            subprocess.run, ["systemctl", "restart", service_name],
+            capture_output=True, text=True, timeout=30
+        )
         if r.returncode != 0:
             raise HTTPException(status_code=500, detail=r.stderr or "Error al reiniciar servicio")
         return {"message": f"Servicio {service_name} reiniciado"}

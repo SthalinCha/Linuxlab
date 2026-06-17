@@ -1,25 +1,34 @@
 import functools
 from typing import Optional, Callable, Any
-from fastapi import Request, Depends
+from fastapi import Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database.session import get_session
-from app.database.models import AuditLog, Admin
-from app.core.security import get_current_admin
+from app.models import AuditLog, User
 
 
 async def log_event(
     session: AsyncSession,
     event_type: str,
-    admin_username: str,
+    username: str,
     action: str,
     resource_type: Optional[str] = None,
     resource_id: Optional[int] = None,
     details: Optional[dict] = None,
     ip_address: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> AuditLog:
+    if user_id is None and username:
+        result = await session.execute(
+            select(User).where(User.username == username, User.deleted_at.is_(None))
+        )
+        user = result.scalar_one_or_none()
+        if user:
+            user_id = user.id
+
     entry = AuditLog(
         event_type=event_type,
-        admin_username=admin_username,
+        admin_username=username,
+        user_id=user_id,
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,
@@ -55,9 +64,9 @@ def audit_log(
             result = await func(*args, **kwargs)
             request: Optional[Request] = kwargs.get("request")
             session: Optional[AsyncSession] = kwargs.get("session")
-            admin: Optional[Admin] = kwargs.get("admin")
+            user: Optional[User] = kwargs.get("user")
 
-            if session is not None and admin is not None:
+            if session is not None and user is not None:
                 rid = None
                 if resource_id_param and resource_id_param in kwargs:
                     rid = kwargs[resource_id_param]
@@ -66,7 +75,7 @@ def audit_log(
                 await log_event(
                     session=session,
                     event_type=event_type,
-                    admin_username=admin.username,
+                    username=user.username,
                     action=action,
                     resource_type=resource_type,
                     resource_id=rid,
@@ -89,7 +98,7 @@ async def log_login_event(
     await log_event(
         session=session,
         event_type=event_type,
-        admin_username=username,
+        username=username,
         action=action,
         ip_address=ip_address,
         details=details,

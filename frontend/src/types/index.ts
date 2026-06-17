@@ -1,17 +1,24 @@
-export interface Admin {
+export type VMState = 'running' | 'shut off' | 'paused' | 'crashed' | 'unknown'
+export type VMStatus = 'running' | 'shutoff'
+
+export interface VMDisplay {
   id: number
-  username: string
-  full_name: string
-  is_active: boolean
+  name: string
+  status: VMStatus
+  ip: string
+  mac: string
+  cpuAlloc: number
+  ramAlloc: number
+  diskAlloc: number
+  cpuUsage: number
+  ramUsage: number
 }
 
 export interface Student {
   id: number
   full_name: string
   email: string
-  student_code: string
   is_active: boolean
-  notes?: string
 }
 
 export interface VirtualMachine {
@@ -23,9 +30,8 @@ export interface VirtualMachine {
   vcpus: number
   ram_mb: number
   disk_gb: number
-  current_state: string
+  current_state: VMState
   ports?: Port[]
-  is_active: boolean
   is_template?: boolean
   ram_used_mb?: number
   ram_percent?: number
@@ -47,12 +53,14 @@ export interface AddPortRequest {
 
 export interface VMAssignment {
   id: number
-  id_vm: number
-  id_student: number
-  period_name: string
+  vm_id: number | null
+  student_id: number
+  period_id: number
+  period_name?: string
   assigned_at: string
   released_at?: string
-  recreate_count: number
+  recreation_count: number
+  vm_name_snapshot?: string
   notes?: string
   vm?: VirtualMachine
   student?: Student
@@ -90,27 +98,12 @@ export interface DashboardData {
   running_vms: number
   stopped_vms: number
   health_score: number
-  swap_used_mb?: number
-  swap_total_mb?: number
-  swap_percent?: number
-  has_libvirt?: boolean
+  alerts_count: number
 }
 
 export interface DashboardHistory {
-  cpu_history: { time: string; cpu: number; ram: number }[]
-  ram_history: { time: string; cpu: number; ram: number }[]
-  disk_history: { time: string; disk: number }[]
-  vm_distribution: { name: string; value: number }[]
-}
-
-export interface DashboardAlert {
-  level: 'critical' | 'warning' | 'info'
-  message: string
-  resource: string
-}
-
-export interface DashboardAlerts {
-  alerts: DashboardAlert[]
+  cpu_history: { time: string; cpu: number }[]
+  ram_history: { time: string; ram: number }[]
 }
 
 export interface TopConsumer {
@@ -122,24 +115,6 @@ export interface TopConsumer {
 export interface TopConsumers {
   top_cpu: TopConsumer[]
   top_ram: TopConsumer[]
-}
-
-export interface ActivityItem {
-  time: string
-  event: string
-  resource: string
-  type: string
-}
-
-export interface RecentActivity {
-  activity: ActivityItem[]
-}
-
-export interface CapacityInfo {
-  free_vcpus: number
-  free_ram_gb: number
-  free_disk_gb: number
-  estimated_vms: number
 }
 
 export interface HostInfo {
@@ -174,11 +149,60 @@ export interface TokenResponse {
   token_type: string
 }
 
+export interface Period {
+  id: number
+  code: string
+  name: string | null
+  start_date: string
+  end_date: string
+  is_active: boolean
+  closed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface PeriodInfo {
+  id: number
   period_name: string
+  name?: string
+  start_date: string
+  end_date: string
+  is_active?: boolean
+  closed_at: string | null
   total: number
   active: number
   released: number
+  student_count: number
+}
+
+export interface PortRangeVM {
+  id: number
+  name: string
+  ip: string
+}
+
+export interface PortRangeConfig {
+  vms: PortRangeVM[]
+  mode: 'block' | 'linear'
+  base_port: number
+  ports_per_vm: number
+  guest_port_start?: number
+  protocol: 'tcp' | 'udp'
+  description?: string
+}
+
+export interface PortRangeResultItem {
+  vm: string
+  id: number
+  host_ports: string
+  status: string
+  message: string
+}
+
+export interface PortRangeResult {
+  success: boolean
+  total: number
+  results: PortRangeResultItem[]
 }
 
 export interface AdminCreateRequest {

@@ -4,17 +4,20 @@ interface PortForwardFormProps {
   selectedCount: number
   hasOfflineSelected: boolean
   onAdd: (service: string, port: number) => void
-  disabled?: boolean
 }
 
 export default function PortForwardForm({
   selectedCount,
   hasOfflineSelected,
   onAdd,
-  disabled,
 }: PortForwardFormProps) {
   const [service, setService] = useState('')
   const [vmPort, setVmPort] = useState('')
+  const [touched, setTouched] = useState({ service: false, port: false })
+
+  const portNum = parseInt(vmPort, 10)
+  const serviceError = touched.service && service.trim().length > 0 && service.trim().length > 20
+  const portError = touched.port && vmPort.length > 0 && (isNaN(portNum) || portNum < 1 || portNum > 65535)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -28,12 +31,15 @@ export default function PortForwardForm({
     onAdd(trimmed.slice(0, 20), portNum)
     setService('')
     setVmPort('')
+    setTouched({ service: false, port: false })
   }
 
   const canSubmit = service.trim().length > 0
+    && service.trim().length <= 20
     && vmPort.length > 0
-    && parseInt(vmPort, 10) >= 1
-    && parseInt(vmPort, 10) <= 65535
+    && !isNaN(portNum)
+    && portNum >= 1
+    && portNum <= 65535
     && selectedCount > 0
 
   return (
@@ -47,16 +53,24 @@ export default function PortForwardForm({
           type="text"
           value={service}
           onChange={(e) => setService(e.target.value)}
+          onBlur={() => setTouched(prev => ({ ...prev, service: true }))}
           placeholder="Ej: SSH, HTTP, MySQL"
-          disabled={disabled || selectedCount === 0}
+          disabled={selectedCount === 0}
           className={`
             w-full px-3 py-2 text-sm rounded-lg border transition-all duration-150
-            ${disabled || selectedCount === 0
+            ${selectedCount === 0
               ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed'
-              : 'bg-white text-slate-800 border-slate-300 hover:border-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200'
+              : serviceError
+                ? 'border-red-300 bg-red-50 text-red-800 focus:border-red-500 focus:ring-red-200'
+                : 'bg-white text-slate-800 border-slate-300 hover:border-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200'
             }
           `}
         />
+        {serviceError && (
+          <p className="mt-1 text-xs text-red-500 flex items-center gap-1">
+            <i className="fas fa-exclamation-circle" /> Máximo 20 caracteres
+          </p>
+        )}
       </div>
 
       <div className="w-28">
@@ -70,16 +84,24 @@ export default function PortForwardForm({
           max={65535}
           value={vmPort}
           onChange={(e) => setVmPort(e.target.value)}
+          onBlur={() => setTouched(prev => ({ ...prev, port: true }))}
           placeholder="Ej: 22"
-          disabled={disabled || selectedCount === 0}
+          disabled={selectedCount === 0}
           className={`
             w-full px-3 py-2 text-sm rounded-lg border transition-all duration-150
-            ${disabled || selectedCount === 0
+            ${selectedCount === 0
               ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed'
-              : 'bg-white text-slate-800 border-slate-300 hover:border-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200'
+              : portError
+                ? 'border-red-300 bg-red-50 text-red-800 focus:border-red-500 focus:ring-red-200'
+                : 'bg-white text-slate-800 border-slate-300 hover:border-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200'
             }
           `}
         />
+        {portError && (
+          <p className="mt-1 text-xs text-red-500 flex items-center gap-1">
+            <i className="fas fa-exclamation-circle" /> Puerto debe ser 1–65535
+          </p>
+        )}
       </div>
 
       <button
@@ -100,7 +122,7 @@ export default function PortForwardForm({
         )}
       </button>
 
-      {selectedCount === 0 && !disabled && (
+      {selectedCount === 0 && (
         <p className="w-full text-xs text-amber-600 flex items-center gap-1.5 mt-1">
           <i className="fas fa-info-circle" />
           Marca una o más VMs con el checkbox para agregar reglas

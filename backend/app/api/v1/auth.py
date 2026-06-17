@@ -1,18 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_session
-from app.database.models import Admin
-from app.core.security import verify_password, create_access_token, create_refresh_token, decode_token, get_current_admin, hash_password
+from app.models import User, Role
+from app.core.security import verify_password, create_access_token, create_refresh_token, decode_token, get_current_user, hash_password
 from app.core.audit import log_login_event
+from app.core.rate_limiter import login_limiter
+from app.schemas import UserLogin, ChangePasswordRequest
 
 router = APIRouter()
-
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
 
 
 class TokenResponse(BaseModel):
@@ -27,18 +24,29 @@ class RefreshRequest(BaseModel):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(
-    body: LoginRequest,
+    body: UserLogin,
     request: Request,
     session: AsyncSession = Depends(get_session),
 ):
-    ip = request.client.host if request.client else None
-    result = await session.execute(select(Admin).where(Admin.username == body.username, Admin.is_active == True))
-    admin = result.scalar_one_or_none()
-    if not admin or not verify_password(body.password, admin.password_hash):
+    ip = request.client.host if request.client else "unknown"
+
+    if not await login_limiter.check(ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Demasiados intentos. Intente de nuevo en 1 minuto",
+        )
+
+    result = await session.execute(
+        select(User).where(User.username == body.username, User.deleted_at.is_(None))
+    )
+    user = result.scalar_one_or_none()
+    if not user or not verify_password(body.password, user.password_hash):
         await log_login_event(session, body.username, success=False, ip_address=ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
-    access_token = create_access_token({"sub": admin.username})
-    refresh_token = create_refresh_token({"sub": admin.username})
+
+    await login_limiter.reset(ip)
+    access_token = create_access_token({"sub": user.username})
+    refresh_token = create_refresh_token({"sub": user.username})
     await log_login_event(session, body.username, success=True, ip_address=ip)
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
@@ -51,60 +59,71 @@ async def refresh(body: RefreshRequest, session: AsyncSession = Depends(get_sess
     username = payload.get("sub")
     if not username:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
-    result = await session.execute(select(Admin).where(Admin.username == username, Admin.is_active == True))
+    result = await session.execute(
+        select(User).where(User.username == username, User.deleted_at.is_(None))
+    )
     if not result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin no encontrado")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
     access_token = create_access_token({"sub": username})
     new_refresh = create_refresh_token({"sub": username})
     return TokenResponse(access_token=access_token, refresh_token=new_refresh)
 
 
-class CreateAdminRequest(BaseModel):
+class CreateUserRequest(BaseModel):
     username: str
     password: str
     full_name: str
 
+    @field_validator("password")
+    @classmethod
+    def password_min_length(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("La contraseña debe tener al menos 8 caracteres")
+        return v
+
 
 @router.post("/register", status_code=201)
-async def register_admin(
-    body: CreateAdminRequest,
+async def register_user(
+    body: CreateUserRequest,
     session: AsyncSession = Depends(get_session),
-    admin: Admin = Depends(get_current_admin),
+    user: User = Depends(get_current_user),
 ):
-    existing = await session.execute(select(Admin).where(Admin.username == body.username))
+    existing = await session.execute(select(User).where(User.username == body.username))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El usuario ya existe")
-    new_admin = Admin(
+
+    role = await session.execute(select(Role).where(Role.name == "admin"))
+    admin_role = role.scalar_one_or_none()
+    if not admin_role:
+        admin_role = Role(name="admin", description="Administrador del sistema")
+        session.add(admin_role)
+        await session.flush()
+
+    new_user = User(
         username=body.username,
         password_hash=hash_password(body.password),
         full_name=body.full_name,
+        email=f"{body.username}@linuxlab.local",
+        role_id=admin_role.id,
     )
-    session.add(new_admin)
+    session.add(new_user)
     await session.commit()
-    await session.refresh(new_admin)
-    return {"id": new_admin.id, "username": new_admin.username, "full_name": new_admin.full_name}
-
-
-class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
+    await session.refresh(new_user)
+    return {"id": new_user.id, "username": new_user.username, "full_name": new_user.full_name}
 
 
 @router.post("/change-password")
 async def change_password(
     body: ChangePasswordRequest,
     session: AsyncSession = Depends(get_session),
-    admin: Admin = Depends(get_current_admin),
+    user: User = Depends(get_current_user),
 ):
-    if not verify_password(body.current_password, admin.password_hash):
+    if not verify_password(body.current_password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Contraseña actual incorrecta")
-
-    if len(body.new_password) < 6:
-        raise HTTPException(status_code=422, detail="La nueva contraseña debe tener al menos 6 caracteres")
 
     if body.new_password == body.current_password:
         raise HTTPException(status_code=422, detail="La nueva contraseña debe ser diferente a la actual")
 
-    admin.password_hash = hash_password(body.new_password)
+    user.password_hash = hash_password(body.new_password)
     await session.commit()
     return {"message": "Contraseña actualizada correctamente"}

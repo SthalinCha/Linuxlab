@@ -1,5 +1,5 @@
 import logging
-from app.libvirt_layer.connection import get_connection, HAVE_LIBVIRT
+from app.core.libvirt.connection import get_connection, HAVE_LIBVIRT
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +68,16 @@ class CloneService:
             return {"success": False, "error": "libvirt no está disponible en este servidor"}
 
         import libvirt
-        conn = get_connection()
-        pool = conn.storagePoolLookupByName(POOL_NAME)
+        try:
+            conn = get_connection()
+            pool = conn.storagePoolLookupByName(POOL_NAME)
+        except libvirt.libvirtError as e:
+            return {"success": False, "error": f"Error accediendo al storage pool: {e}"}
 
-        template_vol = pool.storageVolLookupByName(TEMPLATE_VOL_NAME)
+        try:
+            template_vol = pool.storageVolLookupByName(TEMPLATE_VOL_NAME)
+        except libvirt.libvirtError as e:
+            return {"success": False, "error": f"Volumen plantilla '{TEMPLATE_VOL_NAME}' no encontrado: {e}"}
         template_path = template_vol.path()
         new_vol_name = f"{new_name}.qcow2"
 
@@ -121,8 +127,11 @@ class CloneService:
             return {"success": False, "error": "libvirt no está disponible en este servidor"}
         import libvirt
         import xml.etree.ElementTree as ET
-        conn = get_connection()
-        pool = conn.storagePoolLookupByName(POOL_NAME)
+        try:
+            conn = get_connection()
+            pool = conn.storagePoolLookupByName(POOL_NAME)
+        except libvirt.libvirtError as e:
+            return {"success": False, "error": f"Error accediendo al storage pool: {e}"}
 
         vol_name = f"{vm_name}.qcow2"
         try:
@@ -132,7 +141,10 @@ class CloneService:
         except libvirt.libvirtError:
             old_path = ""
 
-        template_vol = pool.storageVolLookupByName(f"{template_name}.qcow2")
+        try:
+            template_vol = pool.storageVolLookupByName(f"{template_name}.qcow2")
+        except libvirt.libvirtError as e:
+            return {"success": False, "error": f"Volumen plantilla '{template_name}.qcow2' no encontrado: {e}"}
         template_path = template_vol.path()
         vol_xml = f"""<volume>
   <name>{vol_name}</name>
@@ -151,31 +163,39 @@ class CloneService:
   </backingStore>
 </volume>"""
 
-        new_vol = pool.createXML(vol_xml, 0)
+        try:
+            new_vol = pool.createXML(vol_xml, 0)
+        except libvirt.libvirtError as e:
+            return {"success": False, "error": f"Error creando volumen: {e}"}
         new_path = new_vol.path()
 
         try:
             dom = conn.lookupByName(vm_name)
-            # VM exists — undefine and redefine with same XML + new disk path
-            if dom.info()[0] == 1:
-                try:
-                    dom.destroy()
-                except libvirt.libvirtError:
-                    pass
-
-            xml = dom.XMLDesc()
-            root = ET.fromstring(xml)
-            for disk in root.iter("disk"):
-                source = disk.find("source")
-                if source is not None and source.get("file") == old_path:
-                    source.set("file", new_path)
-
-            dom.undefine()
-            try:
-                conn.defineXML(ET.tostring(root, encoding="unicode"))
-            except libvirt.libvirtError as e:
-                return {"success": False, "error": f"Error redefiniendo dominio: {e}"}
         except libvirt.libvirtError:
+            dom = None
+
+        if dom is not None:
+            try:
+                if dom.info()[0] == 1:
+                    try:
+                        dom.destroy()
+                    except libvirt.libvirtError:
+                        pass
+                xml = dom.XMLDesc()
+                root = ET.fromstring(xml)
+                for disk in root.iter("disk"):
+                    source = disk.find("source")
+                    if source is not None and source.get("file") == old_path:
+                        source.set("file", new_path)
+
+                dom.undefine()
+                try:
+                    conn.defineXML(ET.tostring(root, encoding="unicode"))
+                except libvirt.libvirtError as e:
+                    return {"success": False, "error": f"Error redefiniendo dominio: {e}"}
+            except libvirt.libvirtError as e:
+                return {"success": False, "error": f"Error actualizando dominio existente: {e}"}
+        else:
             # VM doesn't exist in libvirt — create fresh
             if not mac_address:
                 return {"success": False, "error": "mac_address requerido para crear VM nueva en libvirt"}

@@ -5,8 +5,11 @@ import VMs from './pages/VMs'
 import Assignments from './pages/Assignments'
 import Network from './pages/Network'
 import Host from './pages/Host'
+import Students from './pages/Students'
+import Audit from './pages/Audit'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
+import ErrorBoundary from './components/ErrorBoundary'
 
 export default function App() {
   return (
@@ -21,11 +24,13 @@ export default function App() {
         }
       >
         <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard />} />
-        <Route path="vms" element={<VMs />} />
-        <Route path="assignments" element={<Assignments />} />
-        <Route path="network" element={<Network />} />
-        <Route path="host" element={<Host />} />
+        <Route path="dashboard" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+        <Route path="vms" element={<ErrorBoundary><VMs /></ErrorBoundary>} />
+        <Route path="assignments" element={<ErrorBoundary><Assignments /></ErrorBoundary>} />
+        <Route path="network" element={<ErrorBoundary><Network /></ErrorBoundary>} />
+        <Route path="host" element={<ErrorBoundary><Host /></ErrorBoundary>} />
+        <Route path="students" element={<ErrorBoundary><Students /></ErrorBoundary>} />
+        <Route path="audit" element={<ErrorBoundary><Audit /></ErrorBoundary>} />
       </Route>
     </Routes>
   )

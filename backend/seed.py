@@ -16,9 +16,9 @@ import sys
 import libvirt
 from sqlalchemy import select
 from app.database.session import async_session, engine
-from app.database.models import Base, Admin, VirtualMachine
+from app.models import Base, User, Role, VirtualMachine, VMTemplate
 from app.core.security import hash_password
-from app.config import VM_SUBNET
+from app.core.config import VM_SUBNET
 from app.services.vm_service import build_ports
 
 TEMPLATE_NAME = "ubuntu-server-main"
@@ -30,19 +30,41 @@ async def seed():
         await conn.run_sync(Base.metadata.create_all)
 
     async with async_session() as session:
+        admin_role = await session.execute(select(Role).where(Role.name == "admin"))
+        admin_role = admin_role.scalar_one_or_none()
+        if not admin_role:
+            admin_role = Role(name="admin", description="Administrador del sistema")
+            session.add(admin_role)
+            await session.flush()
+
         existing_admin = await session.execute(
-            select(Admin).where(Admin.username == "admin")
+            select(User).where(User.username == "admin")
         )
         if not existing_admin.scalar_one_or_none():
-            admin = Admin(
+            admin = User(
                 username="admin",
                 password_hash=hash_password("linuxlab"),
                 full_name="Administrador",
+                email="admin@linuxlab.local",
+                role_id=admin_role.id,
             )
             session.add(admin)
             print("Admin creado: admin / linuxlab")
         else:
             print("Admin ya existe")
+
+        default_template = await session.execute(
+            select(VMTemplate).where(VMTemplate.name == TEMPLATE_NAME)
+        )
+        if not default_template.scalar_one_or_none():
+            session.add(VMTemplate(
+                name=TEMPLATE_NAME,
+                description="Plantilla principal de Ubuntu Server",
+                vcpus=1,
+                ram_mb=2048,
+                disk_gb=10,
+            ))
+            await session.flush()
 
         try:
             conn = libvirt.open("qemu:///system")

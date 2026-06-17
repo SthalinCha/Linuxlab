@@ -1,6 +1,7 @@
+import asyncio
 import logging
 import psutil
-from app.libvirt_layer.connection import get_connection
+from app.core.libvirt.connection import get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +42,18 @@ def get_host_metrics() -> dict:
     ram_percent = (used_mem_mb / total_mem_mb * 100) if total_mem_mb else 0
 
     os_info = ""
-    try:
-        with open("/etc/os-release") as f:
-            for line in f:
-                if line.startswith("PRETTY_NAME="):
-                    os_info = line.split("=")[1].strip().strip('"')
-                    break
-    except Exception as e:
-        logger.debug("No se pudo leer /etc/os-release: %s", e)
+    for os_path in ("/host-os-release", "/etc/os-release"):
+        try:
+            with open(os_path) as f:
+                for line in f:
+                    if line.startswith("PRETTY_NAME="):
+                        os_info = line.split("=")[1].strip().strip('"')
+                        break
+            if os_info:
+                break
+        except Exception as e:
+            logger.debug("No se pudo leer %s: %s", os_path, e)
+    if not os_info:
         os_info = "Desconocido"
 
     cpu_temp = None
@@ -96,3 +101,7 @@ def get_host_metrics() -> dict:
         "running_vms": running_vms,
         "stopped_vms": total_vms - running_vms,
     }
+
+
+async def get_host_metrics_async() -> dict:
+    return await asyncio.to_thread(get_host_metrics)

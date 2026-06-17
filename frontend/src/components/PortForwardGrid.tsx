@@ -1,47 +1,50 @@
-import { useState, useEffect, useCallback, Fragment } from 'react'
+import { useState, useEffect, useCallback, Fragment, useRef } from 'react'
 import { api } from '../services/api'
+import { useToast } from '../hooks/useToast'
 import type { VirtualMachine, HostInfo } from '../types'
 import PortCard from './PortCard'
 import PortForwardForm from './PortForwardForm'
-
-type NotificationType = 'success' | 'error'
-
-interface Notification {
-  type: NotificationType
-  message: string
-}
+import PortRangeModal from './PortRangeModal'
+import { StatsSkeleton, TableSkeleton } from './Skeleton'
 
 export default function PortForwardGrid() {
+  const { addToast } = useToast()
   const [vms, setVms] = useState<VirtualMachine[]>([])
   const [hostInfo, setHostInfo] = useState<HostInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedVmIds, setSelectedVmIds] = useState<Set<number>>(new Set())
   const [expandedId, setExpandedId] = useState<number | null>(null)
-  const [notification, setNotification] = useState<Notification | null>(null)
   const [search, setSearch] = useState('')
-
-  const notify = useCallback((type: NotificationType, message: string) => {
-    setNotification({ type, message })
-    setTimeout(() => setNotification(null), 4000)
-  }, [])
+  const [showRangeModal, setShowRangeModal] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
 
   const loadData = useCallback(async () => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    const { signal } = controller
+
     setLoading(true)
     try {
       const [vmsData, hostData] = await Promise.all([
-        api.vms.list(),
-        api.host.get(),
+        api.vms.list(undefined, { signal }),
+        api.host.get({ signal }),
       ])
+      if (signal.aborted) return
       setVms(vmsData)
       setHostInfo(hostData)
     } catch (err) {
-      notify('error', err instanceof Error ? err.message : 'Error al cargar datos')
+      if ((err as Error)?.name === 'AbortError') return
+      addToast('error', err instanceof Error ? err.message : 'Error al cargar datos')
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) setLoading(false)
     }
-  }, [notify])
+  }, [addToast])
 
-  useEffect(() => { loadData() }, [loadData])
+  useEffect(() => {
+    loadData()
+    return () => abortRef.current?.abort()
+  }, [loadData])
 
   const totalRules = vms.reduce((s, vm) => s + (vm.ports?.length || 0), 0)
   const publishedVms = vms.filter(vm => vm.ports && vm.ports.length > 0).length
@@ -78,7 +81,7 @@ export default function PortForwardGrid() {
   const addRuleToSelected = async (service: string, port: number) => {
     const activeSelected = selectedVms.filter(vm => vm.current_state === 'running')
     if (activeSelected.length === 0) {
-      notify('error', 'Ninguna VM seleccionada está activa')
+      addToast('error', 'Ninguna VM seleccionada está activa')
       return
     }
 
@@ -93,12 +96,12 @@ export default function PortForwardGrid() {
         if (lastPort) lastHost = lastPort.host
         addedCount++
       } catch (err) {
-        notify('error', `Error en ${vm.name}: ${err instanceof Error ? err.message : 'Error'}`)
+        addToast('error', `Error en ${vm.name}: ${err instanceof Error ? err.message : 'Error'}`)
       }
     }
 
     if (addedCount > 0) {
-      notify('success', `Regla "${service}" agregada a ${addedCount} VM(s) — puerto host ${lastHost} → ${port}`)
+      addToast('success', `Regla "${service}" agregada a ${addedCount} VM(s) — puerto host ${lastHost} → ${port}`)
     }
   }
 
@@ -111,9 +114,9 @@ export default function PortForwardGrid() {
     try {
       const updated = await api.ports.remove(vmId, portIndex)
       updateVmInState(updated)
-      notify('success', `Regla "${port.service}:${port.host} → ${port.vm}" eliminada de ${vm.name}`)
+      addToast('success', `Regla "${port.service}:${port.host} → ${port.vm}" eliminada de ${vm.name}`)
     } catch (err) {
-      notify('error', `Error al eliminar: ${err instanceof Error ? err.message : 'Error'}`)
+      addToast('error', `Error al eliminar: ${err instanceof Error ? err.message : 'Error'}`)
     }
   }
 
@@ -131,23 +134,6 @@ export default function PortForwardGrid() {
 
   return (
     <div className="space-y-5">
-      {/* Notifications */}
-      {notification && (
-        <div className={`
-          flex items-center gap-3 px-4 py-3 rounded-lg border text-sm transition-all duration-200
-          ${notification.type === 'success'
-            ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-            : 'bg-red-50 border-red-200 text-red-700'
-          }
-        `}>
-          <i className={`fas ${notification.type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'} text-sm`} />
-          <span className="flex-1">{notification.message}</span>
-          <button onClick={() => setNotification(null)} className="opacity-60 hover:opacity-100">
-            <i className="fas fa-xmark" />
-          </button>
-        </div>
-      )}
-
       {/* Stats cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white border border-slate-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-xl p-4 lg:p-5">
@@ -247,12 +233,31 @@ export default function PortForwardGrid() {
           <i className="fas fa-plus-circle text-indigo-500" />
           Agregar Regla de Puertos
         </div>
-        <PortForwardForm
-          selectedCount={selectedVmIds.size}
-          hasOfflineSelected={hasOfflineSelected}
-          onAdd={addRuleToSelected}
-        />
+        <div className="flex items-center gap-2">
+          <PortForwardForm
+            selectedCount={selectedVmIds.size}
+            hasOfflineSelected={hasOfflineSelected}
+            onAdd={addRuleToSelected}
+          />
+          <button
+            onClick={() => setShowRangeModal(true)}
+            disabled={selectedVmIds.size === 0}
+            className="self-start px-3 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+            title="Reenvío por rango con VMs seleccionadas"
+          >
+            <i className="fas fa-arrows-alt-h" />
+            Reenvío por Rango
+          </button>
+        </div>
       </div>
+
+      {showRangeModal && (
+        <PortRangeModal
+          open={showRangeModal}
+          onClose={() => setShowRangeModal(false)}
+          selectedVms={selectedVms}
+        />
+      )}
 
       {/* Search */}
       <div className="relative">
@@ -270,9 +275,9 @@ export default function PortForwardGrid() {
 
       {/* Table */}
       {loading ? (
-        <div className="flex items-center justify-center py-16 text-slate-400">
-          <i className="fas fa-spinner fa-spin text-xl mr-3" />
-          <span className="text-sm">Cargando VMs...</span>
+        <div className="space-y-4">
+          <StatsSkeleton count={4} />
+          <TableSkeleton rows={5} cols={6} />
         </div>
       ) : filteredVms.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 py-16 text-center">
@@ -388,7 +393,6 @@ export default function PortForwardGrid() {
                                         onDelete={(index) => deletePort(vm.id, index)}
                                         disabled={vm.current_state !== 'running'}
                                         hostIp={hostInfo?.ip_principal}
-                                        vmIp={vm.ip_address}
                                         vmName={vm.name}
                                       />
                                     ))}

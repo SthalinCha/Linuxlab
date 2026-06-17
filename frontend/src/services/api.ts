@@ -2,11 +2,11 @@ import type {
   DashboardData, DashboardHistory,
   TopConsumers,
   VirtualMachine, Student, VMAssignment, AuditLog, TokenResponse,
-  HostInfo, AdminCreateRequest, AdminCreateResponse, Admin,
-  PeriodInfo, AddPortRequest,
+  HostInfo, AdminCreateRequest, AdminCreateResponse,
+  PeriodInfo, AddPortRequest, Period, PortRangeConfig, PortRangeResult,
 } from '../types'
 
-const API_BASE = '/api/v1'
+const API_BASE = import.meta.env.VITE_API_URL || '/api/v1'
 
 function getTokens() {
   const access = localStorage.getItem('access_token')
@@ -16,31 +16,36 @@ function getTokens() {
 
 async function request<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  signal?: AbortSignal,
 ): Promise<T> {
   const { access, refresh } = getTokens()
+  const isFormData = options.body instanceof FormData
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string>),
   }
   if (access) {
     headers['Authorization'] = `Bearer ${access}`
   }
 
-  let res = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  const opts = { ...options, headers, ...(signal ? { signal } : {}) }
+
+  let res = await fetch(`${API_BASE}${path}`, opts)
 
   if (res.status === 401 && refresh) {
     const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refresh }),
+      ...(signal ? { signal } : {}),
     })
     if (refreshRes.ok) {
       const data = await refreshRes.json()
       localStorage.setItem('access_token', data.access_token)
       localStorage.setItem('refresh_token', data.refresh_token)
       headers['Authorization'] = `Bearer ${data.access_token}`
-      res = await fetch(`${API_BASE}${path}`, { ...options, headers })
+      res = await fetch(`${API_BASE}${path}`, { ...options, headers, ...(signal ? { signal } : {}) })
     } else {
       localStorage.removeItem('access_token')
       localStorage.removeItem('refresh_token')
@@ -57,150 +62,178 @@ async function request<T>(
   return res.json()
 }
 
+type SignalOption = { signal?: AbortSignal }
+
 export const api = {
   auth: {
-    login: (username: string, password: string) =>
+    login: (username: string, password: string, opts?: SignalOption) =>
       request<TokenResponse>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ username, password }),
-      }),
-    register: (data: AdminCreateRequest) =>
+      }, opts?.signal),
+    register: (data: AdminCreateRequest, opts?: SignalOption) =>
       request<AdminCreateResponse>('/auth/register', {
         method: 'POST', body: JSON.stringify(data),
-      }),
-    changePassword: (current_password: string, new_password: string) =>
+      }, opts?.signal),
+    changePassword: (current_password: string, new_password: string, opts?: SignalOption) =>
       request<{ message: string }>('/auth/change-password', {
         method: 'POST',
         body: JSON.stringify({ current_password, new_password }),
-      }),
+      }, opts?.signal),
   },
   dashboard: {
-    get: () => request<DashboardData>('/dashboard'),
-    history: () => request<DashboardHistory>('/dashboard/history'),
-    topConsumers: () => request<TopConsumers>('/dashboard/top-consumers'),
+    get: (opts?: SignalOption) => request<DashboardData>('/dashboard', undefined, opts?.signal),
+    history: (opts?: SignalOption) => request<DashboardHistory>('/dashboard/history', undefined, opts?.signal),
+    topConsumers: (opts?: SignalOption) => request<TopConsumers>('/dashboard/top-consumers', undefined, opts?.signal),
   },
   host: {
-    get: () => request<HostInfo>('/host'),
+    get: (opts?: SignalOption) => request<HostInfo>('/host', undefined, opts?.signal),
+    forwardRange: (cfg: PortRangeConfig, opts?: SignalOption) =>
+      request<PortRangeResult>('/host/iptables/forward-range', {
+        method: 'POST',
+        body: JSON.stringify(cfg),
+      }, opts?.signal),
   },
   ports: {
-    add: (vmId: number, data: AddPortRequest) =>
+    add: (vmId: number, data: AddPortRequest, opts?: SignalOption) =>
       request<VirtualMachine>(`/vms/${vmId}/ports`, {
         method: 'POST',
         body: JSON.stringify(data),
-      }),
-    remove: (vmId: number, portIndex: number) =>
+      }, opts?.signal),
+    remove: (vmId: number, portIndex: number, opts?: SignalOption) =>
       request<VirtualMachine>(`/vms/${vmId}/ports/${portIndex}`, {
         method: 'DELETE',
-      }),
+      }, opts?.signal),
   },
   vms: {
-    list: (state?: string) =>
-      request<VirtualMachine[]>(`/vms${state ? `?state=${state}` : ''}`),
-    listTemplates: () =>
-      request<VirtualMachine[]>('/vms?include_templates=true'),
-    get: (id: number) => request<VirtualMachine>(`/vms/${id}`),
-    start: (id: number) =>
-      request<{ message: string }>(`/vms/${id}/start`, { method: 'POST' }),
-    shutdown: (id: number) =>
-      request<{ message: string }>(`/vms/${id}/shutdown`, { method: 'POST' }),
-    reboot: (id: number) =>
-      request<{ message: string }>(`/vms/${id}/reboot`, { method: 'POST' }),
-    destroy: (id: number) =>
-      request<{ message: string }>(`/vms/${id}/destroy`, { method: 'POST' }),
-    delete: (id: number) =>
-      request<{ message: string }>(`/vms/${id}`, { method: 'DELETE' }),
-    recreate: (id: number) =>
-      request<{ message: string; recreate_count: number }>(`/vms/${id}/recreate`, { method: 'POST' }),
-    bulkAction: (ids: number[], action: string) =>
+    list: async (state?: string, opts?: SignalOption) => {
+      const res = await request<{ items: VirtualMachine[] }>(`/vms${state ? `?state=${state}` : ''}`, undefined, opts?.signal)
+      return res.items
+    },
+    listTemplates: async (opts?: SignalOption) => {
+      const res = await request<{ items: VirtualMachine[] }>('/vms?include_templates=true', undefined, opts?.signal)
+      return res.items
+    },
+    get: (id: number, opts?: SignalOption) => request<VirtualMachine>(`/vms/${id}`, undefined, opts?.signal),
+    start: (id: number, opts?: SignalOption) =>
+      request<{ message: string }>(`/vms/${id}/start`, { method: 'POST' }, opts?.signal),
+    shutdown: (id: number, opts?: SignalOption) =>
+      request<{ message: string }>(`/vms/${id}/shutdown`, { method: 'POST' }, opts?.signal),
+    reboot: (id: number, opts?: SignalOption) =>
+      request<{ message: string }>(`/vms/${id}/reboot`, { method: 'POST' }, opts?.signal),
+    destroy: (id: number, opts?: SignalOption) =>
+      request<{ message: string }>(`/vms/${id}/destroy`, { method: 'POST' }, opts?.signal),
+    delete: (id: number, opts?: SignalOption) =>
+      request<{ message: string }>(`/vms/${id}`, { method: 'DELETE' }, opts?.signal),
+    recreate: (id: number, opts?: SignalOption) =>
+      request<{ message: string; recreate_count: number }>(`/vms/${id}/recreate`, { method: 'POST' }, opts?.signal),
+    bulkAction: (ids: number[], action: string, opts?: SignalOption) =>
       request<Array<{ id: number; name: string; status: string }>>('/vms/bulk-action', {
         method: 'POST',
         body: JSON.stringify({ ids, action }),
-      }),
-    bulkDelete: (ids: number[]) =>
+      }, opts?.signal),
+    bulkDelete: (ids: number[], opts?: SignalOption) =>
       request<Array<{ id: number; name: string; status: string }>>('/vms/bulk-delete', {
         method: 'POST',
         body: JSON.stringify({ ids }),
-      }),
-    clone: (data: { number: number; template_name?: string; vcpus?: number; ram_mb?: number }) =>
+      }, opts?.signal),
+    clone: (data: { number: number; template_name?: string; vcpus?: number; ram_mb?: number }, opts?: SignalOption) =>
       request<VirtualMachine>('/vms/clone', {
         method: 'POST',
         body: JSON.stringify(data),
-      }),
-    createLab: (data: { count: number; start_number: number; prefix: string }) =>
+      }, opts?.signal),
+    createLab: (data: { count: number; start_number: number; prefix: string }, opts?: SignalOption) =>
       request<Array<{ number: number; name: string; status: string; reason?: string }>>('/vms/create-lab', {
         method: 'POST',
         body: JSON.stringify(data),
-      }),
-    recreateRange: (from_number: number, to_number: number) =>
+      }, opts?.signal),
+    recreateRange: (from_number: number, to_number: number, opts?: SignalOption) =>
       request<Array<{ number: number; name: string; status: string; reason?: string }>>('/vms/recreate-range', {
         method: 'POST',
         body: JSON.stringify({ from_number, to_number }),
-      }),
+      }, opts?.signal),
   },
   students: {
-    list: (search?: string) =>
-      request<Student[]>(`/students${search ? `?search=${search}` : ''}`),
-    create: (data: { full_name: string; email: string; student_code: string }) =>
-      request<Student>('/students', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: number, data: { full_name?: string; email?: string; student_code?: string; is_active?: boolean }) =>
-      request<Student>(`/students/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    delete: (id: number) =>
-      request<{ message: string }>(`/students/${id}`, { method: 'DELETE' }),
-    importCsv: (file: File) => {
+    list: async (search?: string, opts?: SignalOption) => {
+      const res = await request<{ items: Student[] }>(`/students${search ? `?search=${search}` : ''}`, undefined, opts?.signal)
+      return res.items
+    },
+    create: (data: { full_name: string; email: string }, opts?: SignalOption) =>
+      request<Student>('/students', { method: 'POST', body: JSON.stringify(data) }, opts?.signal),
+    update: (id: number, data: { full_name?: string; email?: string; is_active?: boolean }, opts?: SignalOption) =>
+      request<Student>(`/students/${id}`, { method: 'PUT', body: JSON.stringify(data) }, opts?.signal),
+    delete: (id: number, opts?: SignalOption) =>
+      request<{ message: string }>(`/students/${id}`, { method: 'DELETE' }, opts?.signal),
+    importCsv: async (file: File, opts?: SignalOption) => {
       const formData = new FormData()
       formData.append('file', file)
       const { access } = getTokens()
-      return fetch(`${API_BASE}/students/import-csv`, {
+      const headers: Record<string, string> = { Authorization: `Bearer ${access}` }
+      const res = await fetch(`${API_BASE}/students/import-csv`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${access}` },
+        headers,
         body: formData,
-      }).then((r) => r.json())
+        ...(opts?.signal ? { signal: opts.signal } : {}),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || 'Error al importar CSV')
+      }
+      return res.json()
     },
-    history: (id: number) => request<VMAssignment[]>(`/students/${id}/history`),
+    history: async (id: number, opts?: SignalOption) => {
+      const res = await request<{ items: VMAssignment[] }>(`/students/${id}/history`, undefined, opts?.signal)
+      return res.items
+    },
   },
   assignments: {
-    list: (activeOnly = true, period?: string) => {
+    list: async (activeOnly = true, periodId?: number, opts?: SignalOption) => {
       const params = new URLSearchParams()
       params.set('active_only', String(activeOnly))
-      if (period) params.set('period', period)
-      return request<VMAssignment[]>(`/assignments?${params}`)
+      if (periodId) params.set('period_id', String(periodId))
+      const res = await request<{ items: VMAssignment[] }>(`/assignments?${params}`, undefined, opts?.signal)
+      return res.items
     },
-    periods: () => request<PeriodInfo[]>('/assignments/periods'),
-    create: (data: { id_vm: number; id_student: number; period_name: string }) =>
-      request<VMAssignment>('/assignments', { method: 'POST', body: JSON.stringify(data) }),
-    release: (id: number) =>
-      request<{ message: string }>(`/assignments/${id}/release`, { method: 'POST' }),
-    autoAssign: (period_name: string) =>
-      request<{ created: number; assignments: Array<{ student: string; vm: string }>; unassigned_students: number }>(
-        '/assignments/auto-assign', { method: 'POST', body: JSON.stringify({ period_name }) }
+    periods: async (opts?: SignalOption) => {
+      const res = await request<{ items: PeriodInfo[] }>('/assignments/periods', undefined, opts?.signal)
+      return res.items
+    },
+    create: (data: { vm_id?: number; student_id: number; period_id: number; notes?: string }, opts?: SignalOption) =>
+      request<VMAssignment>('/assignments', { method: 'POST', body: JSON.stringify(data) }, opts?.signal),
+    release: (id: number, opts?: SignalOption) =>
+      request<{ message: string }>(`/assignments/${id}/release`, { method: 'POST' }, opts?.signal),
+    autoAssign: (periodId: number, preview = true, opts?: SignalOption) =>
+      request<{ created?: number; preview?: boolean; assignments: Array<{ student: string; vm: string; student_id?: number; vm_id?: number }>; unassigned_students: number }>(
+        '/assignments/auto-assign', { method: 'POST', body: JSON.stringify({ period_id: periodId, preview }) }, opts?.signal
       ),
-    bulkRelease: (ids: number[]) =>
+    batchCreate: (assignments: Array<{ vm_id: number; student_id: number; period_id: number }>, opts?: SignalOption) =>
+      request<{ created: number; assignments: Array<{ student: string; vm: string }>; unassigned_students: number }>(
+        '/assignments/batch', { method: 'POST', body: JSON.stringify({ assignments }) }, opts?.signal
+      ),
+    bulkRelease: (ids: number[], opts?: SignalOption) =>
       request<{ released: number }>('/assignments/bulk-release', {
         method: 'POST', body: JSON.stringify({ ids }),
-      }),
+      }, opts?.signal),
+  },
+  periods: {
+    current: (opts?: SignalOption) =>
+      request<Period>('/periods/current', undefined, opts?.signal),
+    list: async (opts?: SignalOption) => {
+      const res = await request<{ items: Period[]; total: number }>('/periods', undefined, opts?.signal)
+      return res.items
+    },
+    close: (id: number, opts?: SignalOption) =>
+      request<{ message: string; released_count: number }>(`/periods/${id}/close`, { method: 'POST' }, opts?.signal),
+    activate: (id: number, opts?: SignalOption) =>
+      request<Period>(`/periods/${id}/activate`, { method: 'PUT' }, opts?.signal),
   },
   audit: {
-    list: (eventType?: string, limit = 50, offset = 0) => {
+    list: (eventType?: string, limit = 50, offset = 0, opts?: SignalOption) => {
       const params = new URLSearchParams()
       if (eventType) params.set('event_type', eventType)
       params.set('limit', String(limit))
       params.set('offset', String(offset))
-      return request<{ items: AuditLog[]; total: number; limit: number; offset: number }>(`/audit?${params}`)
+      return request<{ items: AuditLog[]; total: number; limit: number; offset: number }>(`/audit?${params}`, undefined, opts?.signal)
     },
-  },
-  iptables: {
-    list: () => request<{ success: boolean; rules: Array<Record<string, unknown>>; output: string; stderr?: string }>('/host/iptables'),
-    forward: (from: number, to: number) =>
-      request<{ success: boolean; results: Array<{ vm: number; rule: string; status: string; message: string }> }>('/host/iptables/forward', {
-        method: 'POST',
-        body: JSON.stringify({ from_number: from, to_number: to }),
-      }),
-    unforward: (from: number, to: number) =>
-      request<{ success: boolean }>('/host/iptables/unforward', {
-        method: 'POST',
-        body: JSON.stringify({ from_number: from, to_number: to }),
-      }),
-    save: () =>
-      request<{ success: boolean; message: string }>('/host/iptables/save', { method: 'POST' }),
   },
 }

@@ -6,7 +6,6 @@ interface PortCardProps {
   onDelete: (index: number) => void
   disabled?: boolean
   hostIp?: string
-  vmIp?: string
   vmName?: string
 }
 
@@ -33,7 +32,7 @@ const serviceColor: Record<string, string> = {
   HTTPS: 'bg-indigo-50 text-indigo-700 border-indigo-200',
 }
 
-function accessUrl(port: Port, hostIp?: string, vmIp?: string, vmName?: string): string | null {
+function accessUrl(port: Port, hostIp?: string, vmName?: string): string | null {
   if (!hostIp) return null
   const s = port.service.toLowerCase()
   if (s === 'ssh') return `ssh://estudiante@${hostIp}:${port.host}`
@@ -46,10 +45,10 @@ function accessUrl(port: Port, hostIp?: string, vmIp?: string, vmName?: string):
   return `tcp://${hostIp}:${port.host}`
 }
 
-export default function PortCard({ port, portIndex, onDelete, disabled, hostIp, vmIp, vmName }: PortCardProps) {
+export default function PortCard({ port, portIndex, onDelete, disabled, hostIp, vmName }: PortCardProps) {
   const icon = serviceIcon[port.service] || 'fa-plug'
   const color = serviceColor[port.service] || 'bg-slate-50 text-slate-700 border-slate-200'
-  const url = accessUrl(port, hostIp, vmIp, vmName)
+  const url = accessUrl(port, hostIp, vmName)
 
   const copyUrl = () => {
     if (url) navigator.clipboard.writeText(url)

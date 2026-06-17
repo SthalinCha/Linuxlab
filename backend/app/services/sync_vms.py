@@ -1,8 +1,8 @@
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.database.models import VirtualMachine
-from app.libvirt_layer.connection import get_connection, HAVE_LIBVIRT
+from app.models import VirtualMachine
+from app.core.libvirt.connection import get_connection, HAVE_LIBVIRT
 from app.services.vm_service import build_ports
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ def _get_vm_ip(dom) -> str:
 
 
 def _domain_to_vm_data(dom) -> dict:
-    from app.libvirt_layer.vm_manager import STATE_MAP
+    from app.core.libvirt.vm_manager import STATE_MAP
     try:
         state, max_mem, mem, vcpus, cpu_time = dom.info()
         state_name = STATE_MAP.get(state, "unknown")
@@ -62,6 +62,10 @@ def _domain_to_vm_data(dom) -> dict:
         num = int(name.split("-")[-1]) if "-" in name else 0
     except ValueError:
         pass
+
+    if not ip and num:
+        from app.core.config import VM_SUBNET
+        ip = f"{VM_SUBNET}.{num}"
 
     ports = build_ports(num) if num else []
 
@@ -119,14 +123,16 @@ async def sync_libvirt_domains(session: AsyncSession, setup_iptables: bool = Fal
 
         if vm:
             vm.mac_address = data["mac_address"]
-            vm.ip_address = data["ip_address"]
+            if data["ip_address"]:
+                vm.ip_address = data["ip_address"]
             vm.current_state = data["current_state"]
-            vm.is_active = True
-            vm.is_template = is_template
+            vm.deleted_at = None
+            if is_template:
+                vm.template_name = vm_name
             if not vm.ports:
                 vm.ports = data["ports"]
         else:
-            vm = VirtualMachine(**data, is_active=True, is_template=is_template)
+            vm = VirtualMachine(**data)
             session.add(vm)
             new_vms.append(vm_name)
 
@@ -135,12 +141,19 @@ async def sync_libvirt_domains(session: AsyncSession, setup_iptables: bool = Fal
     await session.commit()
 
     if setup_iptables:
-        for vm_name in new_vms:
+        try:
+            result = await session.execute(select(VirtualMachine.name))
+            all_vm_names = result.scalars().all()
+        except Exception:
+            all_vm_names = []
+
+        names_to_provision = set(new_vms) | {n for n in all_vm_names if n}
+        for vm_name in sorted(names_to_provision):
             try:
                 num = int(vm_name.split("-")[-1])
                 from app.services.iptables_service import forward_range
                 forward_range(num, num)
-                logger.info("Reglas iptables creadas para %s", vm_name)
+                logger.info("Reglas iptables restauradas para %s", vm_name)
             except (ValueError, IndexError):
                 logger.debug("No se pudo extraer número de VM %s para iptables", vm_name)
             except Exception as e:

@@ -1,6 +1,5 @@
 import subprocess
-from typing import Optional
-from app.config import VM_SUBNET, get_host_ip
+from app.core.config import VM_SUBNET, get_host_ip
 from app.services.vm_service import DEFAULT_PORT_MAP
 
 # Alias para compatibilidad interna
@@ -62,16 +61,44 @@ def _vm_rules(num: int) -> list[tuple[list[str], str]]:
     return rules
 
 
-def forward_port(dest_ip: str, host_port: int, vm_port: int, desc: str) -> tuple[bool, str]:
-    args = ["-p", "tcp", "-d", get_host_ip(), "--dport", str(host_port),
+def _nat_args(host_ip: str, dest_ip: str, host_port: int, vm_port: int) -> list[str]:
+    return ["-p", "tcp", "-d", host_ip, "--dport", str(host_port),
             "-j", "DNAT", "--to-destination", f"{dest_ip}:{vm_port}"]
-    return _add_rule("nat", "PREROUTING", args)
+
+
+def forward_port(dest_ip: str, host_port: int, vm_port: int, desc: str) -> tuple[bool, str]:
+    host_ip = get_host_ip()
+    args = _nat_args(host_ip, dest_ip, host_port, vm_port)
+    ok, msg = _add_rule("nat", "PREROUTING", args)
+    _add_rule("nat", "OUTPUT", args)  # Best-effort; local connections need OUTPUT
+    return ok, msg
 
 
 def unforward_port(dest_ip: str, host_port: int, vm_port: int, desc: str) -> tuple[bool, str]:
-    args = ["-p", "tcp", "-d", get_host_ip(), "--dport", str(host_port),
-            "-j", "DNAT", "--to-destination", f"{dest_ip}:{vm_port}"]
-    return _del_rule("nat", "PREROUTING", args)
+    host_ip = get_host_ip()
+    args = _nat_args(host_ip, dest_ip, host_port, vm_port)
+    ok, msg = _del_rule("nat", "PREROUTING", args)
+    _del_rule("nat", "OUTPUT", args)  # Best-effort cleanup
+    return ok, msg
+
+
+def _add_prerouting_and_output(args: list[str], results: list, vm_label: int | str, desc: str):
+    """Add a DNAT rule to both PREROUTING (external) and OUTPUT (local) chains."""
+    ok_prerouting, msg_prerouting = _add_rule("nat", "PREROUTING", args)
+    results.append({"vm": vm_label, "rule": desc, "chain": "PREROUTING",
+                    "status": "ok" if ok_prerouting else "error", "message": msg_prerouting})
+    ok_output, msg_output = _add_rule("nat", "OUTPUT", args)
+    results.append({"vm": vm_label, "rule": desc, "chain": "OUTPUT",
+                    "status": "ok" if ok_output else "error", "message": msg_output})
+
+
+def _del_prerouting_and_output(args: list[str], results: list, vm_label: int | str, desc: str):
+    ok_prerouting, msg_prerouting = _del_rule("nat", "PREROUTING", args)
+    results.append({"vm": vm_label, "rule": desc, "chain": "PREROUTING",
+                    "status": "ok" if ok_prerouting else "error", "message": msg_prerouting})
+    ok_output, msg_output = _del_rule("nat", "OUTPUT", args)
+    results.append({"vm": vm_label, "rule": desc, "chain": "OUTPUT",
+                    "status": "ok" if ok_output else "error", "message": msg_output})
 
 
 def forward_range(from_num: int, to_num: int) -> dict:
@@ -79,8 +106,7 @@ def forward_range(from_num: int, to_num: int) -> dict:
     _ensure_forwarding(results)
     for n in range(from_num, to_num + 1):
         for args, desc in _vm_rules(n):
-            ok, msg = _add_rule("nat", "PREROUTING", args)
-            results.append({"vm": n, "rule": desc, "status": "ok" if ok else "error", "message": msg})
+            _add_prerouting_and_output(args, results, n, desc)
     return {"success": True, "results": results, "total": len(results)}
 
 
@@ -88,8 +114,7 @@ def unforward_range(from_num: int, to_num: int) -> dict:
     results = []
     for n in range(from_num, to_num + 1):
         for args, desc in _vm_rules(n):
-            ok, msg = _del_rule("nat", "PREROUTING", args)
-            results.append({"vm": n, "rule": desc, "status": "ok" if ok else "error", "message": msg})
+            _del_prerouting_and_output(args, results, n, desc)
     return {"success": True, "results": results, "total": len(results)}
 
 
@@ -129,6 +154,68 @@ def save_rules() -> dict:
     except PermissionError:
         # Fallback si no podemos escribir
         return {"success": False, "error": "Permiso denegado al escribir /etc/iptables/rules.v4"}
+
+
+def forward_port_range_config(
+    vms: list[dict],
+    mode: str,
+    base_port: int,
+    ports_per_vm: int,
+    guest_port_start: int | None = None,
+    protocol: str = "tcp",
+    description: str = "",
+) -> dict:
+    results = []
+    _ensure_forwarding(results)
+
+    for idx, vm in enumerate(vms):
+        dest_ip = vm["ip"]
+        vm_name = vm["name"]
+        guest_start = guest_port_start if guest_port_start is not None else base_port
+        host_ports_assigned = []
+
+        if mode == "block":
+            host_base = base_port + idx * ports_per_vm
+            for offset in range(ports_per_vm):
+                host_port = host_base + offset
+                guest_port = guest_start + offset
+                if host_port > 65535 or guest_port > 65535:
+                    results.append({
+                        "vm": vm_name, "id": vm["id"],
+                        "host_ports": "", "status": "error",
+                        "message": "Rango excede puerto máximo 65535",
+                    })
+                    break
+                ok, msg = forward_port(dest_ip, host_port, guest_port,
+                                       f"{description} {vm_name} port-{offset}")
+                if ok:
+                    host_ports_assigned.append(str(host_port))
+                results.append({
+                    "vm": vm_name, "id": vm["id"],
+                    "host_ports": str(host_port),
+                    "status": "ok" if ok else "error",
+                    "message": msg,
+                })
+        else:
+            host_port = base_port + idx
+            guest_port = guest_start
+            if host_port > 65535 or guest_port > 65535:
+                results.append({
+                    "vm": vm_name, "id": vm["id"],
+                    "host_ports": "", "status": "error",
+                    "message": "Puerto excede 65535",
+                })
+                continue
+            ok, msg = forward_port(dest_ip, host_port, guest_port,
+                                   f"{description} {vm_name} linear")
+            results.append({
+                "vm": vm_name, "id": vm["id"],
+                "host_ports": str(host_port),
+                "status": "ok" if ok else "error",
+                "message": msg,
+            })
+
+    return {"success": True, "results": results, "total": len(results)}
 
 
 def _ensure_forwarding(results: list):

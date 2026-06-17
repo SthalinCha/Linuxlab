@@ -4,21 +4,35 @@ import pexpect
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from app.database.session import async_session
-from app.database.models import VirtualMachine
-from app.services.host_service import get_host_metrics
+from app.models import VirtualMachine
+from app.services.host_service import get_host_metrics_async as get_host_metrics
 from app.core.security import decode_token
-from app.config import VM_SSH_USER
+from app.core.config import VM_SSH_USER
 
 router = APIRouter()
 
 
 @router.websocket("/dashboard")
 async def dashboard_ws(websocket: WebSocket):
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4001, reason="Token requerido")
+        return
+
+    try:
+        payload = decode_token(token)
+        if payload.get("type") != "access":
+            await websocket.close(code=4001, reason="Token inválido")
+            return
+    except Exception:
+        await websocket.close(code=4001, reason="Token inválido")
+        return
+
     await websocket.accept()
     try:
         while True:
             try:
-                data = get_host_metrics()
+                data = await get_host_metrics()
                 await websocket.send_text(json.dumps(data))
             except Exception:
                 break
@@ -112,7 +126,7 @@ async def terminal_ws(websocket: WebSocket, vm_id: int):
 
     async with async_session() as session:
         result = await session.execute(
-            select(VirtualMachine).where(VirtualMachine.id == vm_id, VirtualMachine.is_active == True)
+            select(VirtualMachine).where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
         )
         vm = result.scalar_one_or_none()
         if not vm:

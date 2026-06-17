@@ -1,28 +1,51 @@
-from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.security import get_current_admin
-from app.database.models import Admin, VirtualMachine, VMAssignment, AuditLog, Student
+from app.core.security import get_current_user
+from app.models import User, VirtualMachine, AuditLog
 from app.database.session import get_session
-from app.services.host_service import get_host_metrics
+from app.services.host_service import get_host_metrics_async as get_host_metrics
 from app.services.metrics_collector import collector
-from app.libvirt_layer.connection import HAVE_LIBVIRT
-import psutil
+from app.schemas.dashboard import (
+    DashboardResponse,
+    DashboardHistoryResponse,
+    CpuHistoryPoint,
+    RamHistoryPoint,
+    DashboardAlertsResponse,
+    AlertItem,
+    TopConsumersResponse,
+    TopConsumerItem,
+    RecentActivityResponse,
+    ActivityItem,
+    CapacityResponse,
+)
 
 router = APIRouter()
 
 
-@router.get("/dashboard")
+def _compute_alerts_count(host: dict, crashed_vm_count: int) -> int:
+    count = 0
+    if host["cpu_percent"] > 75:
+        count += 1
+    if host["ram_percent"] > 75:
+        count += 1
+    if host["disk_percent"] > 80:
+        count += 1
+    count += crashed_vm_count
+    return count
+
+
+@router.get("/dashboard", response_model=DashboardResponse)
 async def get_dashboard(
-    admin: Admin = Depends(get_current_admin),
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    host = get_host_metrics()
+    host = await get_host_metrics()
 
     result = await session.execute(
         select(func.coalesce(func.sum(VirtualMachine.vcpus), 0)).where(
-            VirtualMachine.is_active == True, VirtualMachine.is_template == False
+            VirtualMachine.deleted_at.is_(None),
+            VirtualMachine.template_id.is_(None)
         )
     )
     vcpu_assigned = result.scalar() or 0
@@ -44,61 +67,41 @@ async def get_dashboard(
 
     health_score = round(sum(health_factors) / len(health_factors), 1)
 
-    import subprocess
-    swap = psutil.swap_memory()
-    try:
-        load_1, load_5, load_15 = psutil.getloadavg()
-    except Exception:
-        load_1 = load_5 = load_15 = 0
+    crashed_count = await session.scalar(
+        select(func.count(VirtualMachine.id)).where(
+            VirtualMachine.current_state.in_(["crashed", "unknown"]),
+            VirtualMachine.deleted_at.is_(None),
+        )
+    )
+    alerts_count = _compute_alerts_count(host, crashed_count or 0)
 
     return {
         **host,
         "health_score": health_score,
         "vcpu_assigned": vcpu_assigned,
-        "ram_assigned_gb": host.get("ram_used_gb", 0),
-        "swap_used_mb": round(swap.used / (1024 * 1024), 1),
-        "swap_total_mb": round(swap.total / (1024 * 1024), 1),
-        "swap_percent": round(swap.percent, 1),
-        "alerts_count": 0,
-        "has_libvirt": HAVE_LIBVIRT,
+        "alerts_count": alerts_count,
     }
 
 
-@router.get("/dashboard/history")
+@router.get("/dashboard/history", response_model=DashboardHistoryResponse)
 async def get_dashboard_history(
-    admin: Admin = Depends(get_current_admin),
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    history = collector.get_history()
-
-    result = await session.execute(
-        select(VirtualMachine).where(VirtualMachine.is_active == True, VirtualMachine.is_template == False)
-    )
-    vms = result.scalars().all()
-    running = sum(1 for v in vms if v.current_state == "running")
-    stopped = sum(1 for v in vms if v.current_state == "shut off")
-    suspended = sum(1 for v in vms if v.current_state == "paused")
-    error = sum(1 for v in vms if v.current_state in ("crashed", "unknown"))
+    history = await collector.get_history(session)
 
     return {
-        "cpu_history": history["cpu_history"],
-        "ram_history": history["ram_history"],
-        "disk_history": history["disk_history"],
-        "vm_distribution": [
-            {"name": "Encendidas", "value": running},
-            {"name": "Apagadas", "value": stopped},
-            {"name": "Suspendidas", "value": suspended},
-            {"name": "Error", "value": error},
-        ],
+        "cpu_history": [CpuHistoryPoint(**p) for p in history["cpu_history"]],
+        "ram_history": [RamHistoryPoint(**p) for p in history["ram_history"]],
     }
 
 
-@router.get("/dashboard/alerts")
+@router.get("/dashboard/alerts", response_model=DashboardAlertsResponse)
 async def get_dashboard_alerts(
-    admin: Admin = Depends(get_current_admin),
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    host = get_host_metrics()
+    host = await get_host_metrics()
     alerts = []
 
     if host["cpu_percent"] > 90:
@@ -115,7 +118,10 @@ async def get_dashboard_alerts(
         alerts.append({"level": "critical", "message": f"Almacenamiento al {host['disk_percent']}%", "resource": "Storage"})
 
     result = await session.execute(
-        select(VirtualMachine).where(VirtualMachine.current_state.in_(["crashed", "unknown"]))
+        select(VirtualMachine).where(
+            VirtualMachine.current_state.in_(["crashed", "unknown"]),
+            VirtualMachine.deleted_at.is_(None),
+        )
     )
     for vm in result.scalars().all():
         alerts.append({"level": "critical", "message": f"VM sin respuesta", "resource": vm.name})
@@ -123,18 +129,18 @@ async def get_dashboard_alerts(
     return {"alerts": alerts}
 
 
-@router.get("/dashboard/top-consumers")
+@router.get("/dashboard/top-consumers", response_model=TopConsumersResponse)
 async def get_top_consumers(
-    admin: Admin = Depends(get_current_admin),
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     stats = collector.get_vm_stats()
     return stats
 
 
-@router.get("/dashboard/recent-activity")
+@router.get("/dashboard/recent-activity", response_model=RecentActivityResponse)
 async def get_recent_activity(
-    admin: Admin = Depends(get_current_admin),
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.execute(
@@ -154,9 +160,9 @@ async def get_recent_activity(
     }
 
 
-@router.get("/dashboard/capacity")
-async def get_capacity(admin: Admin = Depends(get_current_admin)):
-    host = get_host_metrics()
+@router.get("/dashboard/capacity", response_model=CapacityResponse)
+async def get_capacity(user: User = Depends(get_current_user)):
+    host = await get_host_metrics()
 
     total_ram_gb = host["ram_total_gb"]
     used_ram_gb = host["ram_used_gb"]
@@ -166,9 +172,8 @@ async def get_capacity(admin: Admin = Depends(get_current_admin)):
     used_disk_gb = host["disk_used_gb"]
     free_disk_gb = round(total_disk_gb - used_disk_gb, 1)
 
-    avg_vm_ram = 4  
-    avg_vm_cpu = 1  
-    avg_vm_disk = 20  
+    avg_vm_ram = 4
+    avg_vm_disk = 20
 
     vms_by_ram = int(free_ram_gb / avg_vm_ram) if avg_vm_ram > 0 else 0
     vms_by_disk = int(free_disk_gb / avg_vm_disk) if avg_vm_disk > 0 else 0

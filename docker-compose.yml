@@ -28,9 +28,10 @@ services:
 
   backend:
     build: ./backend
+    network_mode: host
     environment:
-      DATABASE_URL: mysql+aiomysql://${MARIADB_USER:-linuxlab}:${MARIADB_PASSWORD:-linuxlab_pass}@db:3306/${MARIADB_DATABASE:-linuxlab}
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: mysql+aiomysql://${MARIADB_USER:-linuxlab}:${MARIADB_PASSWORD:-linuxlab_pass}@127.0.0.1:3306/${MARIADB_DATABASE:-linuxlab}
+      REDIS_URL: redis://127.0.0.1:6379/0
       SECRET_KEY: ${SECRET_KEY}
       ACCESS_TOKEN_EXPIRE_MINUTES: "30"
       REFRESH_TOKEN_EXPIRE_DAYS: "7"
@@ -38,6 +39,8 @@ services:
     user: "1000"
     group_add:
       - "982"
+    cap_add:
+      - NET_ADMIN
     depends_on:
       db:
         condition: service_healthy
@@ -45,6 +48,7 @@ services:
         condition: service_healthy
     volumes:
       - /var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock:rw
+      - /etc/os-release:/host-os-release:ro
     restart: unless-stopped
 
   frontend:

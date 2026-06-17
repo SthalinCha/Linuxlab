@@ -3,7 +3,7 @@ FROM python:3.12-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libvirt-dev gcc pkg-config libc6-dev && \
+    libvirt-dev gcc pkg-config libc6-dev openssh-client iptables sudo && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -11,8 +11,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN groupadd -r linuxlab && useradd -r -g linuxlab -d /app linuxlab && \
-    chown -R linuxlab:linuxlab /app
+RUN groupadd -g 1000 linuxlab && useradd -m -u 1000 -g linuxlab -d /app -s /bin/bash linuxlab && \
+    chown -R linuxlab:linuxlab /app && \
+    echo 'linuxlab ALL=(ALL) NOPASSWD: /usr/sbin/iptables, /usr/sbin/iptables-save, /usr/sbin/iptables-restore' >> /etc/sudoers
 
 USER linuxlab
 

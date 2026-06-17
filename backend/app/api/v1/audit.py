@@ -3,9 +3,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_session
-from app.database.models import AuditLog
-from app.core.security import get_current_admin
-from app.database.models import Admin
+from app.models import AuditLog
+from app.core.security import get_current_user
+from app.models import User
 
 router = APIRouter()
 
@@ -16,7 +16,7 @@ async def list_audit(
     limit: int = Query(100, le=500),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
-    admin: Admin = Depends(get_current_admin),
+    user: User = Depends(get_current_user),
 ):
     base_query = select(AuditLog)
     count_query = select(func.count(AuditLog.id))
