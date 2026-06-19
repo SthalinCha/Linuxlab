@@ -17,11 +17,11 @@ from app.core.config import VM_SUBNET
 from app.core.audit import log_event
 from app.services.vm_list_service import list_vms as list_vms_service
 from app.services.vm_bulk_service import delete_vm_by_id, bulk_delete_vms, bulk_action_vms
-from app.services.vm_port_service import add_port_to_vm, remove_port_from_vm
+from app.services.vm_port_service import add_port_to_vm, remove_port_from_vm, bulk_add_ports_to_vm
 from app.schemas.virtual_machine import (
     VirtualMachineResponse,
     CloneRequest, CloneRangeRequest, CreateLabRequest,
-    BulkDeleteRequest, AddPortRequest, BulkActionRequest, RecreateRangeRequest,
+    BulkDeleteRequest, AddPortRequest, BulkPortsRequest, BulkActionRequest, RecreateRangeRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -131,6 +131,21 @@ async def list_vms(
     user: User = Depends(get_current_user),
 ):
     return await list_vms_service(session, vm_manager, state, include_templates, limit, offset)
+
+
+@router.get("/light")
+async def list_vms_light(
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    result = await session.execute(
+        select(VirtualMachine).where(
+            VirtualMachine.deleted_at.is_(None),
+            VirtualMachine.template_id.is_(None),
+        ).order_by(VirtualMachine.name)
+    )
+    vms = result.scalars().all()
+    return {"items": vms}
 
 
 @router.get("/{vm_id}", response_model=VirtualMachineResponse)
@@ -356,6 +371,11 @@ async def recreate_vm(
     if assignment:
         assignment.recreate(user.id, note="Recreación desde API")
     vm.current_state = "shut off"
+    try:
+        num = int(vm.name.split("-")[-1])
+        vm.ports = build_ports(num)
+    except (ValueError, IndexError):
+        pass
     await session.commit()
     await log_event(session, "vm_recreate", user.username, f"Recreó VM {vm.name}",
                     "vm", vm.id, ip_address=_ip_from_request(request))
@@ -389,6 +409,10 @@ async def recreate_vm_range(
             continue
 
         vm.current_state = "shut off"
+        try:
+            vm.ports = build_ports(num)
+        except (ValueError, IndexError):
+            pass
         await session.commit()
         await log_event(session, "vm_recreate", user.username,
                         f"Recreó {vm.name} (rango)",
@@ -468,4 +492,18 @@ async def remove_port(
                                        user.username, _ip_from_request(request))
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM o puerto no encontrado")
+    return result
+
+
+@router.post("/bulk-ports", response_model=VirtualMachineResponse)
+async def bulk_ports(
+    body: BulkPortsRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    result = await bulk_add_ports_to_vm(session, body.vm_id, [p.model_dump() for p in body.ports],
+                                        user.username, _ip_from_request(request))
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM no encontrada")
     return result

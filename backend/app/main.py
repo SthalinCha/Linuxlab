@@ -117,6 +117,7 @@ async def startup():
                 session.add(Student(
                     full_name=name,
                     email=f"estudiante{idx+1}@universidad.edu",
+                    student_code=f"estudiante{idx+1}",
                 ))
             await session.commit()
 

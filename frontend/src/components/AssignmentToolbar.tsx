@@ -8,8 +8,6 @@ interface Props {
   onPeriodChange: (periodId: number) => void
   showForm: boolean
   onToggleForm: () => void
-  showHistory: boolean
-  onToggleHistory: () => void
   formData: { vm_id: number; student_id: number }
   onFormDataChange: (data: { vm_id: number; student_id: number }) => void
   availableVms: VirtualMachine[]
@@ -19,69 +17,36 @@ interface Props {
   filter: string
   onFilterChange: (value: string) => void
   selectedIds: Set<number>
-  importResult: { created: number; errors: string[] } | null
+  importResult: { created: number; reused: number; assigned: number; unassigned: number; errors: string[]; created_ids: number[] } | null
   onImportResultDismiss: () => void
+  onUndoImport?: () => void
   capacityWarning: string | null
   onCapacityWarningDismiss: () => void
   csvImporting: boolean
-  autoAssignResults: { preview?: boolean; created?: number; assignments: Array<{ student: string; vm: string; student_id?: number; vm_id?: number }>; unassigned_students: number } | null
-  onAutoAssignResultsDismiss: () => void
-  onBatchAssign: (selected: Array<{ vm_id: number; student_id: number }>) => void
   onCreate: (e: FormEvent) => Promise<void>
   onImportCsv: (file: File) => void
-  onAutoAssign: () => void
   onBulkRelease: () => void
   onClearSelection: () => void
   onClosePeriod: () => void
+  onExportCsv: () => void
 }
 
 export default function AssignmentToolbar({
   allPeriods, selectedPeriodId, onPeriodChange,
-  showForm, onToggleForm, showHistory, onToggleHistory,
+  showForm, onToggleForm,
   formData, onFormDataChange, availableVms, availableStudents,
   search, onSearchChange, filter, onFilterChange,
   selectedIds,
-  importResult, onImportResultDismiss,
+  importResult, onImportResultDismiss, onUndoImport,
   capacityWarning, onCapacityWarningDismiss,
   csvImporting,
-  autoAssignResults, onAutoAssignResultsDismiss, onBatchAssign,
-  onCreate, onImportCsv, onAutoAssign, onBulkRelease, onClearSelection, onClosePeriod,
+  onCreate, onImportCsv, onBulkRelease, onClearSelection, onClosePeriod, onExportCsv,
 }: Props) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const hiddenInputRef = useRef<HTMLInputElement>(null)
-  const activePeriodCode = allPeriods.find(p => p.id === selectedPeriodId)?.code ?? '—'
+  const selectedPeriod = allPeriods.find(p => p.id === selectedPeriodId)
+  const activePeriodCode = selectedPeriod?.code ?? '—'
   const periodOptions = allPeriods.filter(p => /^P\d+$/.test(p.code))
-  const [checkedRows, setCheckedRows] = useState<Set<number>>(new Set())
-  const allChecked = !!(autoAssignResults && autoAssignResults.assignments.length > 0 && checkedRows.size === autoAssignResults.assignments.length)
-
-  const handleCheckRow = (idx: number) => {
-    setCheckedRows(prev => {
-      const next = new Set(prev)
-      if (next.has(idx)) next.delete(idx); else next.add(idx)
-      return next
-    })
-  }
-
-  const handleCheckAll = () => {
-    if (!autoAssignResults) return
-    if (allChecked) setCheckedRows(new Set())
-    else setCheckedRows(new Set(autoAssignResults.assignments.map((_, i) => i)))
-  }
-
-  const handleAssignSelected = () => {
-    if (!autoAssignResults) return
-    const selected = autoAssignResults.assignments
-      .filter((_, i) => checkedRows.has(i))
-      .filter(a => a.vm_id && a.student_id)
-      .map(a => ({ vm_id: a.vm_id!, student_id: a.student_id! }))
-    if (selected.length > 0) onBatchAssign(selected)
-  }
-
-  const handleDismissResults = () => {
-    setCheckedRows(new Set())
-    onAutoAssignResultsDismiss()
-  }
-
   const handleFileChange = (file: File | null) => {
     setSelectedFile(file)
     if (file) onImportCsv(file)
@@ -110,20 +75,12 @@ export default function AssignmentToolbar({
         </button>
 
         <button onClick={onClosePeriod}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 transition-all">
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-red-700 bg-red-50 border border-red-200 hover:bg-red-100 transition-all">
           <i className="fas fa-lock"></i>
-          Cerrar Período
+          Finalizar Período
         </button>
 
         <div className="flex-1"></div>
-
-        <button onClick={onToggleHistory}
-          className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-all ${
-            showHistory ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
-          }`}>
-          <i className={`fas ${showHistory ? 'fa-arrow-left' : 'fa-clock-rotate-left'}`}></i>
-          {showHistory ? 'Asignaciones Actuales' : 'Ver Historial'}
-        </button>
 
         <div className="flex gap-2 items-center">
           <input type="file" accept=".csv" ref={hiddenInputRef}
@@ -140,11 +97,12 @@ export default function AssignmentToolbar({
           )}
         </div>
 
-        <button onClick={onAutoAssign}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800 transition-all hover:-translate-y-0.5 active:translate-y-0">
-          <i className="fas fa-bolt"></i>
-          Asignación Automática
+        <button type="button" onClick={onExportCsv}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all">
+          <i className="fas fa-download"></i>
+          Exportar CSV
         </button>
+
       </div>
 
       {/* Dropzone area */}
@@ -218,7 +176,10 @@ export default function AssignmentToolbar({
           <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-sm">
             <i className="fas fa-circle-check text-blue-500 mt-0.5"></i>
             <div className="flex-1">
-              <strong>{importResult.created}</strong> estudiantes importados
+              <strong>{importResult.created}</strong> creados{importResult.reused > 0 ? <>, <strong>{importResult.reused}</strong> reutilizados</> : ''}, <strong>{importResult.assigned}</strong> asignados
+              {importResult.unassigned > 0 && (
+                <span className="ml-1 text-amber-600">({importResult.unassigned} sin VM)</span>
+              )}
               {importResult.errors?.length > 0 && (
                 <ul className="mt-1 text-xs space-y-0.5">
                   {importResult.errors.slice(0, 5).map((e, i) => <li key={i}><i className="fas fa-triangle-exclamation mr-1"></i>{e}</li>)}
@@ -226,7 +187,15 @@ export default function AssignmentToolbar({
                 </ul>
               )}
             </div>
-            <button onClick={onImportResultDismiss} className="font-bold leading-none">&times;</button>
+            <div className="flex items-center gap-2">
+              {importResult.created_ids?.length > 0 && onUndoImport && (
+                <button onClick={onUndoImport}
+                  className="text-xs font-medium text-red-600 hover:text-red-800 underline">
+                  <i className="fas fa-undo mr-1"></i>Deshacer
+                </button>
+              )}
+              <button onClick={onImportResultDismiss} className="font-bold leading-none">&times;</button>
+            </div>
           </div>
         </div>
       )}
@@ -238,68 +207,6 @@ export default function AssignmentToolbar({
             <i className="fas fa-triangle-exclamation text-red-500 mt-0.5"></i>
             <div className="flex-1">{capacityWarning}</div>
             <button onClick={onCapacityWarningDismiss} className="font-bold leading-none">&times;</button>
-          </div>
-        </div>
-      )}
-
-      {/* Auto-assign results */}
-      {autoAssignResults && (
-        <div className="border-t border-slate-100 pt-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
-              <i className="fas fa-bolt text-emerald-500"></i>
-              {autoAssignResults.preview ? 'Vista previa de asignación' : `${autoAssignResults.created} asignaciones creadas`}
-              {autoAssignResults.unassigned_students > 0 && (
-                <span className="text-xs font-normal text-amber-600">({autoAssignResults.unassigned_students} estudiantes sin VM)</span>
-              )}
-            </div>
-            <button onClick={handleDismissResults} className="text-sm text-slate-400 hover:text-slate-600">&times;</button>
-          </div>
-          {autoAssignResults.assignments.length > 0 && (
-            <div className="flex items-center justify-between mb-2 gap-2">
-              <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer select-none">
-                <input type="checkbox" checked={allChecked} onChange={handleCheckAll}
-                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
-                Seleccionar todos
-              </label>
-              <div className="flex items-center gap-2">
-                {autoAssignResults.preview && checkedRows.size > 0 && (
-                  <button onClick={handleAssignSelected}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-all">
-                    <i className="fas fa-check"></i>
-                    Asignar seleccionados ({checkedRows.size})
-                  </button>
-                )}
-                <button onClick={onAutoAssign}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-all">
-                  <i className="fas fa-bolt"></i>
-                  Asignar todos
-                </button>
-              </div>
-            </div>
-          )}
-          <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-200">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 font-medium">
-                  <th className="px-3 py-2 text-left w-8"></th>
-                  <th className="px-3 py-2 text-left">Estudiante</th>
-                  <th className="px-3 py-2 text-left">VM</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {autoAssignResults.assignments.map((a, i) => (
-                  <tr key={i} className={`hover:bg-slate-50 transition-colors ${checkedRows.has(i) ? 'bg-emerald-50/50' : ''}`}>
-                    <td className="px-3 py-2">
-                      <input type="checkbox" checked={checkedRows.has(i)} onChange={() => handleCheckRow(i)}
-                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
-                    </td>
-                    <td className="px-3 py-2 font-medium text-slate-700">{a.student}</td>
-                    <td className="px-3 py-2 font-mono text-emerald-600">{a.vm}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         </div>
       )}

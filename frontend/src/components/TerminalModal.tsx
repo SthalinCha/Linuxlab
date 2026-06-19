@@ -41,7 +41,7 @@ export default function TerminalModal({ open, vmId, vmName, onClose, wsUrl }: Pr
 
     ws.onopen = () => {
       term.focus()
-      term.write('\x1b[33mConectando a VM...\x1b[0m\r\n')
+      term.write('\x1b[33mConectando...\x1b[0m\r\n')
     }
 
     ws.onmessage = (event) => {

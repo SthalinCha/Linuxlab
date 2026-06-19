@@ -8,6 +8,8 @@ interface Props {
 }
 
 export default function ClosePeriodModal({ open, periodCode, onConfirm, onCancel }: Props) {
+  const titleId = 'close-period-modal-title'
+  const descId = 'close-period-modal-desc'
   const confirmRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -25,9 +27,6 @@ export default function ClosePeriodModal({ open, periodCode, onConfirm, onCancel
 
   if (!open) return null
 
-  const titleId = 'close-period-modal-title'
-  const descId = 'close-period-modal-desc'
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center"
       role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descId}>
@@ -37,16 +36,17 @@ export default function ClosePeriodModal({ open, periodCode, onConfirm, onCancel
           <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
             <i className="fas fa-lock text-amber-600"></i>
           </div>
-          <h2 id={titleId} className="text-lg font-semibold text-slate-800">Cerrar Período {periodCode}</h2>
+          <h2 id={titleId} className="text-lg font-semibold text-slate-800">Finalizar Período {periodCode}</h2>
         </div>
         <p id={descId} className="text-sm text-slate-600 mb-4">
-          Al cerrar el período se liberarán <strong>todas las asignaciones activas</strong>.
+          Al finalizar el período se <strong>liberarán todas las asignaciones activas</strong>.
           Las VMs quedarán disponibles para el próximo período.
+          Todo el historial de asignaciones se conservará.
         </p>
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
           <div className="flex items-start gap-2 text-sm text-amber-800">
             <i className="fas fa-triangle-exclamation mt-0.5"></i>
-            <span>Esta acción no se puede deshacer. Los estudiantes perderán acceso a sus VMs asignadas.</span>
+            <span>Esta acción no se puede deshacer fácilmente. Los estudiantes perderán acceso a sus VMs, pero el registro histórico se conserva.</span>
           </div>
         </div>
         <div className="flex justify-end gap-3">
@@ -56,7 +56,7 @@ export default function ClosePeriodModal({ open, periodCode, onConfirm, onCancel
           </button>
           <button ref={confirmRef} onClick={onConfirm}
             className="px-4 py-2 text-sm text-white bg-red-600 rounded hover:bg-red-700">
-            Cerrar Período
+            Finalizar Período
           </button>
         </div>
       </div>

@@ -125,7 +125,7 @@ export default function VMs() {
     const nums = allVms
       .map(v => parseInt(v.name.split('-').pop() || '0', 10))
       .filter(n => !isNaN(n) && n > 0)
-    setConfirmAddVm(nums.length > 0 ? Math.max(...nums) + 1 : 9)
+    setConfirmAddVm(nums.length > 0 ? Math.max(Math.max(...nums) + 1, 10) : 10)
   }
 
   const doAddVm = async () => {

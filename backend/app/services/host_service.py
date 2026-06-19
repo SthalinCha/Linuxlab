@@ -1,12 +1,22 @@
 import asyncio
 import logging
+import time
 import psutil
 from app.core.libvirt.connection import get_connection
 
 logger = logging.getLogger(__name__)
 
+_metrics_cache: dict | None = None
+_metrics_cache_time: float = 0
+METRICS_CACHE_TTL = 10  # seconds
+
 
 def get_host_metrics() -> dict:
+    global _metrics_cache, _metrics_cache_time
+    now = time.time()
+    if _metrics_cache is not None and now - _metrics_cache_time < METRICS_CACHE_TTL:
+        return dict(_metrics_cache)
+
     conn = get_connection()
 
     try:
@@ -24,7 +34,7 @@ def get_host_metrics() -> dict:
         total_mem_kb = 0
         free_mem_kb = 0
 
-    cpu_percent = psutil.cpu_percent(interval=0.1)
+    cpu_percent = psutil.cpu_percent(interval=0)
     cpu_count = psutil.cpu_count(logical=False)
     load_1, load_5, load_15 = psutil.getloadavg()
     disk_usage = psutil.disk_usage("/")
@@ -81,7 +91,7 @@ def get_host_metrics() -> dict:
             total_vms += 1
             running_vms += 1
 
-    return {
+    result = {
         "hostname": conn.getHostname(),
         "os": os_info,
         "cpu_percent": round(cpu_percent, 1),
@@ -101,6 +111,9 @@ def get_host_metrics() -> dict:
         "running_vms": running_vms,
         "stopped_vms": total_vms - running_vms,
     }
+    _metrics_cache = result
+    _metrics_cache_time = now
+    return result
 
 
 async def get_host_metrics_async() -> dict:

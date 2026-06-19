@@ -89,8 +89,7 @@ export default function Audit() {
                   <th className="text-left px-4 py-3">Tipo</th>
                   <th className="text-left px-4 py-3">Administrador</th>
                   <th className="text-left px-4 py-3">Acción</th>
-                  <th className="text-left px-4 py-3">Recurso</th>
-                  <th className="text-left px-4 py-3">IP</th>
+
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -110,12 +109,7 @@ export default function Audit() {
                     </td>
                     <td className="px-4 py-3 font-medium">{log.admin_username}</td>
                     <td className="px-4 py-3">{log.action}</td>
-                    <td className="px-4 py-3 text-slate-500 text-xs">
-                      {log.resource_type ? `${log.resource_type}#${log.resource_id}` : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-slate-500 font-mono text-xs">
-                      {log.ip_address || '-'}
-                    </td>
+
                   </tr>
                 ))}
               </tbody>

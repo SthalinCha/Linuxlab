@@ -2,13 +2,26 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { api } from '../services/api'
 import type { DashboardData, DashboardHistory, TopConsumers } from '../types'
 
-export function useDashboard(pollIntervalMs = 20000) {
+function closeWebSocket(ws: WebSocket | null) {
+  if (!ws) return
+  ws.onmessage = null
+  ws.onclose = null
+  ws.onerror = null
+  if (ws.readyState === WebSocket.OPEN) ws.close()
+}
+
+const POLL_MS = 120000
+const WS_RECONNECT_MS = 3000
+
+export function useDashboard() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [history, setHistory] = useState<DashboardHistory | null>(null)
   const [topConsumers, setTopConsumers] = useState<TopConsumers | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const wsRef = useRef<WebSocket | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const fetchAll = useCallback(async () => {
     abortRef.current?.abort()
@@ -33,33 +46,58 @@ export function useDashboard(pollIntervalMs = 20000) {
     }
   }, [])
 
-  useEffect(() => {
-    fetchAll()
-    if (pollIntervalMs > 0) {
-      intervalRef.current = setInterval(fetchAll, pollIntervalMs)
+  const connectWs = useCallback(() => {
+    const token = localStorage.getItem('access_token')
+    if (!token) return
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const url = `${protocol}://${window.location.host}/ws/dashboard?token=${token}`
+
+    closeWebSocket(wsRef.current)
+    const ws = new WebSocket(url)
+    wsRef.current = ws
+
+    ws.onmessage = (event) => {
+      try {
+        const live = JSON.parse(event.data)
+        setData(prev => prev ? { ...prev, ...live } : prev)
+      } catch { /* ignore parse errors */ }
     }
 
-    const handleVisibility = () => {
-      if (document.hidden) {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current)
-          intervalRef.current = null
-        }
-      } else {
-        fetchAll()
-        if (pollIntervalMs > 0) {
-          intervalRef.current = setInterval(fetchAll, pollIntervalMs)
-        }
+    ws.onclose = () => {
+      if (wsRef.current === ws) {
+        reconnectRef.current = setTimeout(connectWs, WS_RECONNECT_MS)
       }
     }
-    document.addEventListener('visibilitychange', handleVisibility)
+
+    ws.onerror = () => ws.close()
+  }, [])
+
+  useEffect(() => {
+    fetchAll()
+    connectWs()
+    pollRef.current = setInterval(fetchAll, POLL_MS)
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        clearInterval(pollRef.current!)
+        pollRef.current = null
+        closeWebSocket(wsRef.current)
+      } else {
+        fetchAll()
+        pollRef.current = setInterval(fetchAll, POLL_MS)
+        connectWs()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
-      document.removeEventListener('visibilitychange', handleVisibility)
+      clearInterval(pollRef.current!)
+      clearTimeout(reconnectRef.current!)
+      closeWebSocket(wsRef.current)
+      document.removeEventListener('visibilitychange', onVisibility)
       abortRef.current?.abort()
     }
-  }, [fetchAll, pollIntervalMs])
+  }, [fetchAll, connectWs])
 
   return { data, history, topConsumers, error, refetch: fetchAll }
 }

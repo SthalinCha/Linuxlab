@@ -100,3 +100,35 @@ async def remove_port_from_vm(session: AsyncSession, vm_id: int, port_index: int
                     f"Eliminó puerto {removed.get('service', '?')}:{removed.get('host', '?')} de {vm.name}",
                     "vm", vm.id, ip_address=ip_address)
     return vm
+
+
+async def bulk_add_ports_to_vm(session: AsyncSession, vm_id: int, ports: list[dict],
+                                username: str, ip_address: str) -> dict | None:
+    async with _port_lock:
+        result = await session.execute(
+            select(VirtualMachine).where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
+        )
+        vm = result.scalar_one_or_none()
+        if not vm:
+            return None
+
+        existing = list(vm.ports) if vm.ports else []
+        for p in ports:
+            service = p.get("service", "").strip().upper()
+            service_name = p.get("serviceName") or p.get("service_name") or service
+            if service_name:
+                service_name = service_name.strip().upper()
+            entry = {"host": p["host"], "vm": p["vm"], "service": service}
+            if service_name:
+                entry["service_name"] = service_name
+            existing.append(entry)
+        vm.ports = existing
+        await session.flush()
+
+    await session.commit()
+    await session.refresh(vm)
+
+    await log_event(session, "ports_bulk_add", username,
+                    f"Añadidos {len(ports)} puertos a {vm.name}",
+                    "vm", vm.id, ip_address=ip_address)
+    return vm

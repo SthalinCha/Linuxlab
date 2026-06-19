@@ -1,101 +1,145 @@
+import { useState } from 'react'
 import type { Port } from '../types'
+import ServiceChip from './ServiceChip'
 
-interface PortCardProps {
-  port: Port
-  portIndex: number
+interface PortGroupProps {
+  ports: Port[]
+  portIndices: number[]
   onDelete: (index: number) => void
   disabled?: boolean
   hostIp?: string
-  vmName?: string
+  vmIp?: string
 }
 
-const serviceIcon: Record<string, string> = {
-  SSH: 'fa-terminal',
-  HTTP: 'fa-globe',
-  WEB: 'fa-globe',
-  Cockpit: 'fa-server',
-  FTP: 'fa-upload',
-  MySQL: 'fa-database',
-  Postgres: 'fa-database',
-  HTTPS: 'fa-lock',
-  DNS: 'fa-network-wired',
-  SMTP: 'fa-envelope',
+interface ServiceGroup {
+  serviceName: string
+  ports: Port[]
+  indices: number[]
 }
 
-const serviceColor: Record<string, string> = {
-  SSH: 'bg-cyan-50 text-cyan-700 border-cyan-200',
-  HTTP: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  WEB: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  Cockpit: 'bg-violet-50 text-violet-700 border-violet-200',
-  FTP: 'bg-amber-50 text-amber-700 border-amber-200',
-  MySQL: 'bg-orange-50 text-orange-700 border-orange-200',
-  HTTPS: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-}
+export default function PortCard({ ports, portIndices, onDelete, disabled, hostIp, vmIp }: PortGroupProps) {
+  const [expandedService, setExpandedService] = useState<string | null>(null)
 
-function accessUrl(port: Port, hostIp?: string, vmName?: string): string | null {
-  if (!hostIp) return null
-  const s = port.service.toLowerCase()
-  if (s === 'ssh') return `ssh://estudiante@${hostIp}:${port.host}`
-  if (s === 'http') return `http://${hostIp}:${port.host}`
-  if (s === 'https') return `https://${hostIp}:${port.host}`
-  if (s === 'cockpit' && vmName) {
-    const num = vmName.split('-').pop()
-    if (num) return `https://${hostIp}/vhost${num}/`
-  }
-  return `tcp://${hostIp}:${port.host}`
-}
+  if (ports.length === 0) return null
 
-export default function PortCard({ port, portIndex, onDelete, disabled, hostIp, vmName }: PortCardProps) {
-  const icon = serviceIcon[port.service] || 'fa-plug'
-  const color = serviceColor[port.service] || 'bg-slate-50 text-slate-700 border-slate-200'
-  const url = accessUrl(port, hostIp, vmName)
+  const groups: Record<string, ServiceGroup> = {}
+  ports.forEach((p, idx) => {
+    const key = p.serviceName || p.service
+    if (!groups[key]) groups[key] = { serviceName: key, ports: [], indices: [] }
+    groups[key].ports.push(p)
+    groups[key].indices.push(portIndices[idx])
+  })
 
-  const copyUrl = () => {
-    if (url) navigator.clipboard.writeText(url)
-  }
+  const entries = Object.values(groups)
 
   return (
-    <div className={`
-      relative group flex items-center gap-3 px-4 py-3 rounded-lg border transition-all duration-150
-      ${color}
-      ${disabled ? 'opacity-50 pointer-events-none' : 'hover:shadow-sm'}
-    `}>
-      <div className="flex-shrink-0 w-9 h-9 rounded-full bg-white/60 flex items-center justify-center text-sm border border-current/20">
-        <i className={`fas ${icon}`} />
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {entries.map(g => (
+          <ServiceChip
+            key={g.serviceName}
+            serviceName={g.serviceName}
+            count={g.ports.length}
+            selected={expandedService === g.serviceName}
+            onClick={disabled ? undefined : () => {
+              setExpandedService(prev => prev === g.serviceName ? null : g.serviceName)
+            }}
+          />
+        ))}
+        <span className="text-[10px] text-slate-400 ml-1 font-medium">
+          {ports.length} regla{ports.length !== 1 ? 's' : ''}
+        </span>
       </div>
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide">{port.service}</span>
-        </div>
-        <div className="flex items-center gap-1.5 mt-0.5">
-          <code className="text-xs font-mono font-medium bg-white/60 px-1.5 py-0.5 rounded">{port.host}</code>
-          <span className="text-xs text-slate-400">&rarr;</span>
-          <code className="text-xs font-mono font-medium bg-white/60 px-1.5 py-0.5 rounded">{port.vm}</code>
-        </div>
-        {url && (
-          <div className="mt-1 flex items-center gap-1">
-            <code className="text-[10px] font-mono text-slate-400 truncate max-w-[180px]">{url}</code>
-            <button
-              onClick={(e) => { e.stopPropagation(); copyUrl() }}
-              className="text-slate-400 hover:text-indigo-600 transition-colors text-[10px]"
-              title="Copiar URL"
-            >
-              <i className="fas fa-copy" />
-            </button>
+      {/* Expanded inline detail */}
+      {entries.map(g => {
+        if (expandedService !== g.serviceName) return null
+        const firstHost = g.ports[0]?.host
+        const lastHost = g.ports[g.ports.length - 1]?.host
+        const firstVm = g.ports[0]?.vm
+
+        return (
+          <div
+            key={`detail-${g.serviceName}`}
+            className="border border-slate-200 rounded-xl bg-white overflow-hidden transition-all duration-200"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100">
+              <div className="flex items-center gap-3 text-xs">
+                <span className="font-semibold text-slate-700">{g.serviceName}</span>
+                <span className="text-slate-400">·</span>
+                <span className="text-slate-500">{g.ports.length} reglas</span>
+                {g.ports.length > 1 && (
+                  <>
+                    <span className="text-slate-400">·</span>
+                    <code className="font-mono text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                      Host: {firstHost}–{lastHost}
+                    </code>
+                    <code className="font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                      Guest: {firstVm}–{firstVm! + g.ports.length - 1}
+                    </code>
+                  </>
+                )}
+              </div>
+              <button
+                onClick={() => setExpandedService(null)}
+                className="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors"
+              >
+                <i className="fas fa-times text-[10px]" />
+              </button>
+            </div>
+
+            {/* Port table */}
+            <div className="max-h-64 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-white border-b border-slate-100">
+                    <th className="px-4 py-2 text-left font-semibold text-slate-400 w-8">#</th>
+                    <th className="px-4 py-2 text-left font-semibold text-slate-400">Host</th>
+                    <th className="px-4 py-2 text-left font-semibold text-slate-400">→ VM</th>
+                    {hostIp && <th className="px-4 py-2 text-left font-semibold text-slate-400 hidden sm:table-cell">Acceso</th>}
+                    <th className="px-4 py-2 text-center w-10"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {g.ports.map((p, i) => (
+                    <tr key={i} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-1.5 text-slate-400">{i + 1}</td>
+                      <td className="px-4 py-1.5">
+                        <code className="font-mono text-slate-700">{p.host}</code>
+                      </td>
+                      <td className="px-4 py-1.5">
+                        <code className="font-mono text-slate-700">{p.vm}</code>
+                      </td>
+                      {hostIp && (
+                        <td className="px-4 py-1.5 hidden sm:table-cell">
+                          <code className="text-[10px] text-slate-400 font-mono">
+                            {hostIp}:{p.host} → {vmIp || '?'}:{p.vm}
+                          </code>
+                        </td>
+                      )}
+                      <td className="px-4 py-1.5 text-center">
+                        <button
+                          onClick={() => {
+                            const realIdx = g.indices[i]
+                            onDelete(realIdx)
+                            if (g.ports.length <= 1) setExpandedService(null)
+                          }}
+                          className="w-6 h-6 rounded flex items-center justify-center
+                            text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          title="Eliminar"
+                        >
+                          <i className="fas fa-trash-alt text-[10px]" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        )}
-      </div>
-
-      <button
-        onClick={() => onDelete(portIndex)}
-        className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center
-          text-slate-400 hover:text-red-600 hover:bg-red-50
-          transition-colors duration-150 opacity-0 group-hover:opacity-100"
-        title="Eliminar regla"
-      >
-        <i className="fas fa-xmark text-sm" />
-      </button>
+        )
+      })}
     </div>
   )
 }

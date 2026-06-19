@@ -19,8 +19,6 @@ async def list_vms(
     limit: int = 100,
     offset: int = 0,
 ) -> dict:
-    from app.services.sync_vms import sync_libvirt_domains
-    await sync_libvirt_domains(session)
 
     query = select(VirtualMachine).where(VirtualMachine.deleted_at.is_(None))
     if not include_templates:

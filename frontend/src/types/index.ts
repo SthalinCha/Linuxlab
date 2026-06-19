@@ -44,11 +44,24 @@ export interface Port {
   host: number
   vm: number
   service: string
+  serviceName?: string
 }
 
 export interface AddPortRequest {
   service: string
   port: number
+}
+
+export interface BulkPortEntry {
+  host: number
+  vm: number
+  service: string
+  serviceName?: string
+}
+
+export interface BulkPortsRequest {
+  vm_id: number
+  ports: BulkPortEntry[]
 }
 
 export interface VMAssignment {

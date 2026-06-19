@@ -117,6 +117,17 @@ class AddPortRequest(BaseModel):
     port: int
 
 
+class BulkPortEntry(BaseModel):
+    host: int
+    vm: int
+    service: str
+
+
+class BulkPortsRequest(BaseModel):
+    vm_id: int
+    ports: list[BulkPortEntry]
+
+
 class BulkActionRequest(BaseModel):
     ids: list[int]
     action: str

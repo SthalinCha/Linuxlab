@@ -2,17 +2,17 @@ import { useState, FormEvent } from 'react'
 import { api } from '../services/api'
 import { useToast } from '../hooks/useToast'
 import { useAssignments } from '../hooks/useAssignments'
-import type { VMAssignment, VMState } from '../types'
+import type { VMState } from '../types'
 import ConfirmModal from '../components/ConfirmModal'
 import ClosePeriodModal from '../components/ClosePeriodModal'
 import ContentHeader from '../components/ContentHeader'
 import AssignmentStats from '../components/AssignmentStats'
 import AssignmentToolbar from '../components/AssignmentToolbar'
 import AssignmentTable from '../components/AssignmentTable'
-import AssignmentHistory from '../components/AssignmentHistory'
+
 
 export default function Assignments() {
-  const { assignments, vms, students, allPeriods, currentPeriod, selectedPeriodId, loading, error, refetch: loadData, loadPeriods, handleActivatePeriod } = useAssignments()
+  const { assignments, vms, students, allPeriods, currentPeriod, selectedPeriodId, loading, error, refetch: loadData, loadPeriods, handleSelectPeriod, page, totalPages, totalAssignments, goToPage } = useAssignments()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('todos')
 
@@ -23,19 +23,16 @@ export default function Assignments() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [confirmRelease, setConfirmRelease] = useState<number | null>(null)
   const [confirmBulkRelease, setConfirmBulkRelease] = useState(false)
-  const [confirmAutoAssign, setConfirmAutoAssign] = useState(false)
   const [confirmClosePeriod, setConfirmClosePeriod] = useState(false)
-  const [autoAssignResults, setAutoAssignResults] = useState<{ preview?: boolean; created?: number; assignments: Array<{ student: string; vm: string; student_id?: number; vm_id?: number }>; unassigned_students: number } | null>(null)
+  const [confirmUndoImport, setConfirmUndoImport] = useState(false)
 
-  const [importResult, setImportResult] = useState<{ created: number; errors: string[] } | null>(null)
+  const [importResult, setImportResult] = useState<{ created: number; reused: number; assigned: number; unassigned: number; errors: string[]; created_ids: number[] } | null>(null)
   const [csvImporting, setCsvImporting] = useState(false)
   const [capacityWarning, setCapacityWarning] = useState<string | null>(null)
 
-  const [showHistory, setShowHistory] = useState(false)
-  const [expandedPeriod, setExpandedPeriod] = useState<number | null>(null)
-  const [periodAssignments, setPeriodAssignments] = useState<VMAssignment[]>([])
-  const [loadingPeriod, setLoadingPeriod] = useState(false)
 
+
+  const TEACHER_VM = 'vhost-10'
   const activePeriodId = selectedPeriodId
   const activePeriodCode = allPeriods.find(p => p.id === selectedPeriodId)?.code ?? currentPeriod?.code ?? '—'
 
@@ -44,7 +41,7 @@ export default function Assignments() {
     Array.isArray(students) ? students.find((s) => s.id === id)?.full_name || `Estudiante #${id}` : `Estudiante #${id}`
 
   const availableVms = Array.isArray(vms)
-    ? vms.filter((v) => !assignments.some((a) => a.vm_id === v.id && !a.released_at))
+    ? vms.filter((v) => v.name !== TEACHER_VM && !assignments.some((a) => a.vm_id === v.id && !a.released_at))
     : []
   const availableStudents = Array.isArray(students)
     ? students.filter((s) => s.is_active && !assignments.some((a) => a.student_id === s.id && !a.released_at))
@@ -54,6 +51,14 @@ export default function Assignments() {
     e.preventDefault()
     if (!activePeriodId) {
       addToast('error', 'No hay un período activo')
+      return
+    }
+    if (!formData.vm_id || formData.vm_id <= 0) {
+      addToast('error', 'Debes seleccionar una VM')
+      return
+    }
+    if (!formData.student_id || formData.student_id <= 0) {
+      addToast('error', 'Debes seleccionar un estudiante')
       return
     }
     try {
@@ -90,52 +95,17 @@ export default function Assignments() {
     }
   }
 
-  const handleAutoAssign = async (confirmed = false) => {
-    if (!activePeriodId) {
-      addToast('error', 'No hay un período activo')
-      return
-    }
-    try {
-      const result = await api.assignments.autoAssign(activePeriodId, !confirmed)
-      if (!confirmed && result.preview) {
-        setAutoAssignResults(result)
-        setConfirmAutoAssign(true)
-        return
-      }
-      setAutoAssignResults(result)
-      setConfirmAutoAssign(false)
-      addToast('success', `${result.created} asignaciones automáticas creadas`)
-      await loadData(activePeriodId || undefined)
-    } catch (err) {
-      addToast('error', err instanceof Error ? err.message : 'Error en asignación automática')
-    }
-  }
-
-  const handleBatchAssign = async (selected: Array<{ vm_id: number; student_id: number }>) => {
-    if (!activePeriodId || selected.length === 0) return
-    try {
-      const items = selected.map(s => ({ ...s, period_id: activePeriodId }))
-      const result = await api.assignments.batchCreate(items)
-      addToast('success', `${result.created} asignaciones creadas`)
-      setAutoAssignResults(null)
-      await loadData(activePeriodId || undefined)
-    } catch (err) {
-      addToast('error', err instanceof Error ? err.message : 'Error al crear asignaciones')
-    }
-  }
-
   const handleImportCsv = async (file: File) => {
     setCsvImporting(true)
     setCapacityWarning(null)
-    addToast('loading', 'Importando estudiantes...')
     try {
-      const result = await api.students.importCsv(file)
+      const result = await api.students.importCsv(file, activePeriodId || undefined)
       setImportResult(result)
-      addToast('success', `${result.created} estudiantes importados`)
+      const reused = result.reused > 0 ? `, ${result.reused} reutilizados` : ''
+      addToast('success', `${result.created} creados${reused}, ${result.assigned} asignados`)
 
-      const available = freeVms
-      if (result.created > available) {
-        setCapacityWarning(`Solo hay ${available} VM${available !== 1 ? 's' : ''} disponibles para estudiantes. ${result.created - available} estudiante${result.created - available !== 1 ? 's' : ''} quedar${result.created - available !== 1 ? 'án' : 'á'} sin asignar.`)
+      if (result.unassigned > 0) {
+        setCapacityWarning(`${result.unassigned} estudiante${result.unassigned !== 1 ? 's' : ''} del CSV no pudieron recibir VM por falta de recursos.`)
       }
 
       await loadData(activePeriodId || undefined)
@@ -146,12 +116,45 @@ export default function Assignments() {
     }
   }
 
+  const handleUndoImport = async () => {
+    try {
+      const { created_ids } = importResult!
+      const result = await api.students.undoImport({
+        student_ids: created_ids,
+        period_id: activePeriodId || undefined,
+      })
+      setConfirmUndoImport(false)
+      setImportResult(null)
+      addToast('success', `Importación revertida: ${result.deleted_students} estudiantes eliminados, ${result.deleted_assignments} asignaciones borradas`)
+      await loadData(activePeriodId || undefined)
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Error al revertir importación')
+    }
+  }
+
+  const handleExportCsv = async () => {
+    try {
+      const blob = await api.assignments.export(activePeriodId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `asignaciones_${activePeriodCode.replace(/\s+/g, '_')}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      addToast('success', 'CSV exportado correctamente')
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Error al exportar CSV')
+    }
+  }
+
   const handleClosePeriod = async () => {
     if (!activePeriodId) return
     try {
       const result = await api.periods.close(activePeriodId)
       setConfirmClosePeriod(false)
-      addToast('success', `Período cerrado (${result.released_count} asignaciones liberadas)`)
+      addToast('success', `Período finalizado (${result.released_count} asignaciones liberadas)`)    
       await loadData(activePeriodId || undefined)
       await loadPeriods()
     } catch (err) {
@@ -173,28 +176,6 @@ export default function Assignments() {
     else setSelectedIds(new Set(active.map(a => a.id)))
   }
 
-  const loadPeriodAssignments = async (periodId: number) => {
-    setLoadingPeriod(true)
-    try {
-      const data = await api.assignments.list(false, periodId)
-      setPeriodAssignments(Array.isArray(data) ? data : [])
-    } catch (err) {
-      addToast('error', 'Error al cargar asignaciones del período')
-    } finally {
-      setLoadingPeriod(false)
-    }
-  }
-
-  const togglePeriodAccordion = (periodId: number) => {
-    if (expandedPeriod === periodId) {
-      setExpandedPeriod(null)
-      setPeriodAssignments([])
-      return
-    }
-    setExpandedPeriod(periodId)
-    loadPeriodAssignments(periodId)
-  }
-
   const assignedIds = new Set(assignments.filter(a => !a.released_at).map(a => a.student_id))
   const unassignedStudents = students.filter(s => s.is_active && !assignedIds.has(s.id))
 
@@ -212,6 +193,10 @@ export default function Assignments() {
       )
     }
     return true
+  }).sort((a, b) => {
+    const nameA = (vms.find(v => v.id === a.vm_id)?.name || '').replace('vhost-', '')
+    const nameB = (vms.find(v => v.id === b.vm_id)?.name || '').replace('vhost-', '')
+    return (parseInt(nameA, 10) || 0) - (parseInt(nameB, 10) || 0)
   })
 
   const activeCount = assignments.filter(a => !a.released_at).length
@@ -220,7 +205,6 @@ export default function Assignments() {
     ? students.filter(s => s.is_active).length
     : new Set(assignments.map(a => a.student_id)).size
   const pendingStudents = isOpenPeriod ? totalStudents - activeCount : 0
-  const TEACHER_VM = 'vhost-10'
   const freeVms = vms.filter(v => v.name !== TEACHER_VM && !assignments.some(a => a.vm_id === v.id && !a.released_at)).length
 
   const stateColors: Partial<Record<VMState, string>> = {
@@ -254,11 +238,9 @@ export default function Assignments() {
       <AssignmentToolbar
         allPeriods={allPeriods}
         selectedPeriodId={selectedPeriodId}
-        onPeriodChange={handleActivatePeriod}
+        onPeriodChange={handleSelectPeriod}
         showForm={showForm}
         onToggleForm={() => setShowForm(!showForm)}
-        showHistory={showHistory}
-        onToggleHistory={() => setShowHistory(!showHistory)}
         formData={formData}
         onFormDataChange={setFormData}
         availableVms={availableVms}
@@ -273,25 +255,13 @@ export default function Assignments() {
         capacityWarning={capacityWarning}
         onCapacityWarningDismiss={() => setCapacityWarning(null)}
         csvImporting={csvImporting}
-        autoAssignResults={autoAssignResults}
-        onAutoAssignResultsDismiss={() => setAutoAssignResults(null)}
-        onBatchAssign={handleBatchAssign}
         onCreate={handleCreate}
         onImportCsv={handleImportCsv}
-        onAutoAssign={() => {
-          if (!activePeriodId) {
-            addToast('error', 'No hay un período activo')
-            return
-          }
-          if (availableVms.length === 0 || availableStudents.length === 0) {
-            addToast('error', 'No hay VMs o estudiantes disponibles')
-            return
-          }
-          handleAutoAssign(false)
-        }}
+        onUndoImport={() => setConfirmUndoImport(true)}
         onBulkRelease={() => setConfirmBulkRelease(true)}
         onClearSelection={() => setSelectedIds(new Set())}
         onClosePeriod={() => setConfirmClosePeriod(true)}
+        onExportCsv={handleExportCsv}
       />
 
       <AssignmentTable
@@ -310,18 +280,10 @@ export default function Assignments() {
         onToggleSelect={toggleSelect}
         onSelectAll={handleSelectAll}
         onConfirmRelease={(id) => setConfirmRelease(id)}
-      />
-
-      <AssignmentHistory
-        show={showHistory}
-        periods={allPeriods}
-        expandedPeriod={expandedPeriod}
-        loadingPeriod={loadingPeriod}
-        periodAssignments={periodAssignments}
-        students={students}
-        vms={vms}
-        onTogglePeriod={togglePeriodAccordion}
-        onLoadPeriods={loadPeriods}
+        page={page + 1}
+        totalPages={totalPages}
+        totalItems={totalAssignments}
+        onPageChange={(p) => goToPage(p - 1)}
       />
 
       <ConfirmModal
@@ -341,12 +303,12 @@ export default function Assignments() {
         onCancel={() => setConfirmBulkRelease(false)} />
 
       <ConfirmModal
-        open={confirmAutoAssign}
-        title="¿Asignar automáticamente?"
-        message={`Se asignarán VMs disponibles a estudiantes sin asignación (período: ${activePeriodCode}). vhost-10 quedará reservada.`}
-        confirmLabel="Asignar Automáticamente"
-        onConfirm={() => handleAutoAssign(true)}
-        onCancel={() => setConfirmAutoAssign(false)} />
+        open={confirmUndoImport}
+        title="¿Revertir importación?"
+        message={`Se eliminarán ${importResult?.created_ids?.length ?? 0} estudiantes recién importados y se liberarán sus asignaciones.`}
+        danger confirmLabel="Revertir"
+        onConfirm={handleUndoImport}
+        onCancel={() => setConfirmUndoImport(false)} />
 
       <ClosePeriodModal
         open={confirmClosePeriod}

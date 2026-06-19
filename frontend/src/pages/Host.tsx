@@ -1,15 +1,12 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
 import type { HostInfo } from '../types'
-import TerminalModal from '../components/TerminalModal'
 import ContentHeader from '../components/ContentHeader'
 
 export default function Host() {
   const [host, setHost] = useState<HostInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [successMsg, setSuccessMsg] = useState('')
-  const [showHostTerminal, setShowHostTerminal] = useState(false)
 
   const loadData = async () => {
     setLoading(true)
@@ -41,12 +38,6 @@ export default function Host() {
           {error} <button onClick={() => setError('')} className="float-right font-bold">&times;</button>
         </div>
       )}
-      {successMsg && (
-        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded text-sm">
-          {successMsg} <button onClick={() => setSuccessMsg('')} className="float-right font-bold">&times;</button>
-        </div>
-      )}
-
       <ContentHeader title="Host" icon="fa-server" />
 
       {/* Resumen */}
@@ -132,25 +123,6 @@ export default function Host() {
         </table>
       </div>
 
-      {/* Terminal */}
-      <div className="flex justify-end">
-        <button onClick={() => setShowHostTerminal(true)}
-          className="bg-slate-800 text-white px-4 py-2 rounded text-sm hover:bg-slate-700">
-          Terminal
-        </button>
-      </div>
-
-      <div className="flex justify-end">
-        <button onClick={loadData} className="bg-slate-800 text-white px-4 py-2 rounded text-sm hover:bg-slate-700">
-          Actualizar métricas
-        </button>
-      </div>
-
-      <TerminalModal
-        open={showHostTerminal}
-        vmName="Centauri (Host)"
-        wsUrl={`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/host-terminal?token=${localStorage.getItem('access_token')}`}
-        onClose={() => setShowHostTerminal(false)} />
     </div>
   )
 }

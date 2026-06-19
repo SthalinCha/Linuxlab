@@ -4,6 +4,7 @@ import type {
   VirtualMachine, Student, VMAssignment, AuditLog, TokenResponse,
   HostInfo, AdminCreateRequest, AdminCreateResponse,
   PeriodInfo, AddPortRequest, Period, PortRangeConfig, PortRangeResult,
+  BulkPortsRequest,
 } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1'
@@ -110,6 +111,10 @@ export const api = {
       const res = await request<{ items: VirtualMachine[] }>(`/vms${state ? `?state=${state}` : ''}`, undefined, opts?.signal)
       return res.items
     },
+    listLight: async (opts?: SignalOption) => {
+      const res = await request<{ items: VirtualMachine[] }>('/vms/light', undefined, opts?.signal)
+      return res.items
+    },
     listTemplates: async (opts?: SignalOption) => {
       const res = await request<{ items: VirtualMachine[] }>('/vms?include_templates=true', undefined, opts?.signal)
       return res.items
@@ -152,6 +157,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ from_number, to_number }),
       }, opts?.signal),
+    bulkSavePorts: (data: BulkPortsRequest, opts?: SignalOption) =>
+      request<VirtualMachine>('/vms/bulk-ports', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }, opts?.signal),
   },
   students: {
     list: async (search?: string, opts?: SignalOption) => {
@@ -164,12 +174,18 @@ export const api = {
       request<Student>(`/students/${id}`, { method: 'PUT', body: JSON.stringify(data) }, opts?.signal),
     delete: (id: number, opts?: SignalOption) =>
       request<{ message: string }>(`/students/${id}`, { method: 'DELETE' }, opts?.signal),
-    importCsv: async (file: File, opts?: SignalOption) => {
+    undoImport: (data: { student_ids: number[]; period_id?: number }, opts?: SignalOption) =>
+      request<{ deleted_assignments: number; deleted_students: number }>('/students/undo-import', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }, opts?.signal),
+    importCsv: async (file: File, periodId?: number, opts?: SignalOption): Promise<{ created: number; reused: number; assigned: number; unassigned: number; errors: string[]; created_ids: number[] }> => {
       const formData = new FormData()
       formData.append('file', file)
+      const url = `/students/import-csv${periodId ? `?period_id=${periodId}` : ''}`
       const { access } = getTokens()
       const headers: Record<string, string> = { Authorization: `Bearer ${access}` }
-      const res = await fetch(`${API_BASE}/students/import-csv`, {
+      const res = await fetch(`${API_BASE}${url}`, {
         method: 'POST',
         headers,
         body: formData,
@@ -187,12 +203,14 @@ export const api = {
     },
   },
   assignments: {
-    list: async (activeOnly = true, periodId?: number, opts?: SignalOption) => {
+    list: async (activeOnly = true, periodId?: number, opts?: SignalOption & { limit?: number; offset?: number }) => {
       const params = new URLSearchParams()
       params.set('active_only', String(activeOnly))
       if (periodId) params.set('period_id', String(periodId))
-      const res = await request<{ items: VMAssignment[] }>(`/assignments?${params}`, undefined, opts?.signal)
-      return res.items
+      if (opts?.limit) params.set('limit', String(opts.limit))
+      if (opts?.offset) params.set('offset', String(opts.offset))
+      const res = await request<{ items: VMAssignment[]; total: number }>(`/assignments?${params}`, undefined, opts?.signal)
+      return res
     },
     periods: async (opts?: SignalOption) => {
       const res = await request<{ items: PeriodInfo[] }>('/assignments/periods', undefined, opts?.signal)
@@ -203,17 +221,39 @@ export const api = {
     release: (id: number, opts?: SignalOption) =>
       request<{ message: string }>(`/assignments/${id}/release`, { method: 'POST' }, opts?.signal),
     autoAssign: (periodId: number, preview = true, opts?: SignalOption) =>
-      request<{ created?: number; preview?: boolean; assignments: Array<{ student: string; vm: string; student_id?: number; vm_id?: number }>; unassigned_students: number }>(
+      request<{ created?: number; preview?: boolean; assignments: Array<{ student: string; vm: string; student_id?: number; vm_id?: number }>; unassigned_students: number; available_vms?: number; total_unassigned?: number }>(
         '/assignments/auto-assign', { method: 'POST', body: JSON.stringify({ period_id: periodId, preview }) }, opts?.signal
       ),
     batchCreate: (assignments: Array<{ vm_id: number; student_id: number; period_id: number }>, opts?: SignalOption) =>
-      request<{ created: number; assignments: Array<{ student: string; vm: string }>; unassigned_students: number }>(
+      request<{ created: number; assignments: Array<{ student: string; vm: string }>; errors?: Array<{ vm_id: number; student_id: number; reason: string }>; unassigned_students: number }>(
         '/assignments/batch', { method: 'POST', body: JSON.stringify({ assignments }) }, opts?.signal
       ),
     bulkRelease: (ids: number[], opts?: SignalOption) =>
       request<{ released: number }>('/assignments/bulk-release', {
         method: 'POST', body: JSON.stringify({ ids }),
       }, opts?.signal),
+    export: async (periodId?: number, opts?: SignalOption) => {
+      const params = new URLSearchParams()
+      if (periodId) params.set('period_id', String(periodId))
+      const { access } = getTokens()
+      const headers: Record<string, string> = {}
+      if (access) headers['Authorization'] = `Bearer ${access}`
+      const res = await fetch(`${API_BASE}/assignments/export?${params}`, {
+        headers,
+        ...(opts?.signal ? { signal: opts.signal } : {}),
+      })
+      if (!res.ok) {
+        if (res.status === 401) {
+          localStorage.removeItem('access_token')
+          localStorage.removeItem('refresh_token')
+          window.location.href = '/login'
+          throw new Error('Sesión expirada')
+        }
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || 'Error al exportar CSV')
+      }
+      return res.blob()
+    },
   },
   periods: {
     current: (opts?: SignalOption) =>

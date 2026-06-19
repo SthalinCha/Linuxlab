@@ -9,6 +9,7 @@ class Student(BaseModel):
 
     full_name = Column(String(150), nullable=False)
     email = Column(String(150), unique=True, nullable=False, index=True)
+    student_code = Column(String(30), unique=True, nullable=False)
 
     assignments = relationship("VMAssignment", back_populates="student")
 

@@ -49,6 +49,7 @@ services:
     volumes:
       - /var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock:rw
       - /etc/os-release:/host-os-release:ro
+      - /home/ubuntu/.ssh:/app/.ssh:ro
     restart: unless-stopped
 
   frontend:

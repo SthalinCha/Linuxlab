@@ -26,10 +26,6 @@ export default function Students() {
     try {
       const items = await api.assignments.periods()
       setPeriodInfos(items)
-      if (items.length > 0) {
-        const active = items.find(p => p.is_active) || items[0]
-        setSelectedPeriod(active)
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar períodos')
     } finally {
@@ -41,12 +37,12 @@ export default function Students() {
     setLoadingAssignments(true)
     setAssignments([])
     try {
-      const [a, v, s] = await Promise.all([
+      const [result, v, s] = await Promise.all([
         api.assignments.list(false, period.id),
-        api.vms.list(),
+        api.vms.listLight(),
         api.students.list(),
       ])
-      if (Array.isArray(a)) setAssignments(a)
+      if (result?.items && Array.isArray(result.items)) setAssignments(result.items)
       if (Array.isArray(v)) setVms(v)
       if (Array.isArray(s)) setStudents(s)
     } catch (err) {
@@ -107,12 +103,12 @@ export default function Students() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {periodInfos
-            .filter(p => /^P\d+$/.test(p.period_name))
+            .filter(p => /^P\d+$/.test(p.period_name) && (p.is_active || p.closed_at))
             .map(p => {
               const isSelected = selectedPeriod?.period_name === p.period_name
               const isOpen = p.is_active && !p.closed_at
               return (
-                <button key={p.period_name} onClick={() => setSelectedPeriod(p)}
+                <button key={p.period_name} onClick={() => setSelectedPeriod(prev => prev?.period_name === p.period_name ? null : p)}
                   className={`text-left bg-white rounded-xl border-2 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-5 transition-all hover:-translate-y-1 hover:shadow-lg ${isSelected ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200/60'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-lg font-bold text-slate-800">{p.period_name}</span>
@@ -166,6 +162,7 @@ export default function Students() {
                       <th className="px-4 py-3.5 text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500 text-left">IP</th>
                       <th className="px-4 py-3.5 text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500 text-center">Recreac.</th>
                       <th className="px-4 py-3.5 text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500 text-left">Asignación</th>
+                      <th className="px-4 py-3.5 text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500 text-left">Liberación</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -210,7 +207,14 @@ export default function Students() {
                           </td>
                           <td className="px-4 py-3.5 text-xs text-slate-400">
                             <i className="fas fa-calendar-day mr-1"></i>
-                            {new Date(a.assigned_at).toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })}
+                            {new Date(a.assigned_at).toLocaleDateString('es-PE', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </td>
+                          <td className="px-4 py-3.5 text-xs text-slate-400">
+                            {a.released_at ? (
+                              <><i className="fas fa-check-circle mr-1 text-red-400"></i>{new Date(a.released_at).toLocaleDateString('es-PE', { day: 'numeric', month: 'short', year: 'numeric' })}</>
+                            ) : (
+                              <span className="text-slate-300 italic">Activa</span>
+                            )}
                           </td>
                         </tr>
                       )

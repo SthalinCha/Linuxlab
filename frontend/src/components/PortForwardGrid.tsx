@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback, Fragment, useRef } from 'react'
 import { api } from '../services/api'
 import { useToast } from '../hooks/useToast'
 import type { VirtualMachine, HostInfo } from '../types'
-import PortCard from './PortCard'
-import PortForwardForm from './PortForwardForm'
+import PortGroupCard from './PortCard'
 import PortRangeModal from './PortRangeModal'
 import { StatsSkeleton, TableSkeleton } from './Skeleton'
 
@@ -51,7 +50,6 @@ export default function PortForwardGrid() {
   const uniqueServices = new Set(vms.flatMap(vm => (vm.ports || []).map(p => p.service)))
 
   const selectedVms = vms.filter(vm => selectedVmIds.has(vm.id))
-  const hasOfflineSelected = selectedVms.some(vm => vm.current_state !== 'running')
 
   const toggleExpand = (vmId: number) => {
     setExpandedId(prev => prev === vmId ? null : vmId)
@@ -78,33 +76,6 @@ export default function PortForwardGrid() {
     setVms(prev => prev.map(v => v.id === updatedVm.id ? updatedVm : v))
   }
 
-  const addRuleToSelected = async (service: string, port: number) => {
-    const activeSelected = selectedVms.filter(vm => vm.current_state === 'running')
-    if (activeSelected.length === 0) {
-      addToast('error', 'Ninguna VM seleccionada está activa')
-      return
-    }
-
-    let addedCount = 0
-    let lastHost = 0
-
-    for (const vm of activeSelected) {
-      try {
-        const updated = await api.ports.add(vm.id, { service, port })
-        updateVmInState(updated)
-        const lastPort = updated.ports?.[updated.ports.length - 1]
-        if (lastPort) lastHost = lastPort.host
-        addedCount++
-      } catch (err) {
-        addToast('error', `Error en ${vm.name}: ${err instanceof Error ? err.message : 'Error'}`)
-      }
-    }
-
-    if (addedCount > 0) {
-      addToast('success', `Regla "${service}" agregada a ${addedCount} VM(s) — puerto host ${lastHost} → ${port}`)
-    }
-  }
-
   const deletePort = async (vmId: number, portIndex: number) => {
     const vm = vms.find(v => v.id === vmId)
     if (!vm || !vm.ports) return
@@ -114,7 +85,7 @@ export default function PortForwardGrid() {
     try {
       const updated = await api.ports.remove(vmId, portIndex)
       updateVmInState(updated)
-      addToast('success', `Regla "${port.service}:${port.host} → ${port.vm}" eliminada de ${vm.name}`)
+      addToast('success', `DNAT tcp  ${hostInfo?.ip_principal || '?'}:${port.host} → ${vm.ip_address || '?'}:${port.vm} eliminado de ${vm.name}`)
     } catch (err) {
       addToast('error', `Error al eliminar: ${err instanceof Error ? err.message : 'Error'}`)
     }
@@ -227,28 +198,24 @@ export default function PortForwardGrid() {
         </div>
       )}
 
-      {/* Form */}
+      {/* Range forward button */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
         <div className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-          <i className="fas fa-plus-circle text-indigo-500" />
-          Agregar Regla de Puertos
+          <i className="fas fa-arrows-alt-h text-indigo-500" />
+          Configurar Puertos por Rango
         </div>
-        <div className="flex items-center gap-2">
-          <PortForwardForm
-            selectedCount={selectedVmIds.size}
-            hasOfflineSelected={hasOfflineSelected}
-            onAdd={addRuleToSelected}
-          />
-          <button
-            onClick={() => setShowRangeModal(true)}
-            disabled={selectedVmIds.size === 0}
-            className="self-start px-3 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
-            title="Reenvío por rango con VMs seleccionadas"
-          >
-            <i className="fas fa-arrows-alt-h" />
-            Reenvío por Rango
-          </button>
-        </div>
+        <p className="text-xs text-slate-500 mb-3">
+          Agrega múltiples puertos a varias VMs usando un asistente paso a paso.
+          Selecciona las VMs en la tabla de abajo o usa el rango numérico dentro del asistente.
+        </p>
+        <button
+          onClick={() => setShowRangeModal(true)}
+          className="px-4 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-lg
+            hover:bg-indigo-700 transition-colors shadow-sm flex items-center gap-2"
+        >
+          <i className="fas fa-arrows-alt-h" />
+          Agregar Puertos por Rango
+        </button>
       </div>
 
       {showRangeModal && (
@@ -256,6 +223,11 @@ export default function PortForwardGrid() {
           open={showRangeModal}
           onClose={() => setShowRangeModal(false)}
           selectedVms={selectedVms}
+          allVms={vms}
+          onApply={(updatedVms) => {
+            updatedVms.forEach(vm => updateVmInState(vm))
+            loadData()
+          }}
         />
       )}
 
@@ -384,19 +356,14 @@ export default function PortForwardGrid() {
                                     Sin reglas de puerto para esta VM
                                   </div>
                                 ) : (
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                                    {ports.map((port, idx) => (
-                                      <PortCard
-                                        key={`${port.service}-${port.host}-${idx}`}
-                                        port={port}
-                                        portIndex={idx}
-                                        onDelete={(index) => deletePort(vm.id, index)}
-                                        disabled={vm.current_state !== 'running'}
-                                        hostIp={hostInfo?.ip_principal}
-                                        vmName={vm.name}
-                                      />
-                                    ))}
-                                  </div>
+                                  <PortGroupCard
+                                    ports={ports}
+                                    portIndices={ports.map((_, i) => i)}
+                                    onDelete={(index) => deletePort(vm.id, index)}
+                                    disabled={vm.current_state !== 'running'}
+                                    hostIp={hostInfo?.ip_principal}
+                                    vmIp={vm.ip_address}
+                                  />
                                 )}
                               </div>
                             </div>

@@ -4,10 +4,10 @@ import logging
 import psutil
 from collections import deque
 from threading import Lock
+from sqlalchemy import select, text
 from app.core.libvirt.connection import get_connection, HAVE_LIBVIRT
 from app.database.session import async_session
 from app.models.host_metric import HostMetric
-from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,9 @@ class MetricsCollector:
                     ram_percent=round(ram, 1),
                     disk_percent=round(disk, 1),
                 ))
+                await session.execute(
+                    text("DELETE FROM host_metrics WHERE timestamp < datetime('now', '-48 hours')")
+                )
                 await session.commit()
         except Exception as e:
             logger.error("Error persisting host metrics: %s", e)

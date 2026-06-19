@@ -17,12 +17,17 @@ interface Props {
   onToggleSelect: (id: number) => void
   onSelectAll: () => void
   onConfirmRelease: (id: number) => void
+  page?: number
+  totalPages?: number
+  totalItems?: number
+  onPageChange?: (page: number) => void
 }
 
 export default function AssignmentTable({
   loading, filter, search, filteredAssignments, unassignedStudents,
   students, vms, selectedIds, stateColors, stateDots,
   getVmName, getStudentName, onToggleSelect, onSelectAll, onConfirmRelease,
+  page, totalPages, totalItems, onPageChange,
 }: Props) {
   if (loading) {
     return <TableSkeleton rows={5} cols={7} />
@@ -153,7 +158,7 @@ export default function AssignmentTable({
                   <td className="px-4 py-3.5 text-slate-500 font-mono text-xs">{vm?.ip_address || '—'}</td>
                   <td className="px-4 py-3.5 text-xs text-slate-400">
                     <i className="fas fa-calendar-day mr-1"></i>
-                    {new Date(a.assigned_at).toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })}
+                    {new Date(a.assigned_at).toLocaleDateString('es-PE', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </td>
                   <td className="px-4 py-3.5 text-center">
                     <span className={`text-xs font-mono font-semibold ${a.recreation_count >= 3 ? 'text-amber-600' : 'text-slate-400'}`}>
@@ -178,6 +183,29 @@ export default function AssignmentTable({
             })}
           </tbody>
         </table>
+        {totalPages && totalPages > 1 && onPageChange && (
+          <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50/30">
+            <span className="text-xs text-slate-500">{totalItems ?? 0} asignaciones en total</span>
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => onPageChange((page ?? 1) - 1)} disabled={page === 1}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-200/60 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                <i className="fas fa-chevron-left"></i>
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                <button key={p} onClick={() => onPageChange(p)}
+                  className={`min-w-[2rem] px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    p === page ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'
+                  }`}>
+                  {p}
+                </button>
+              ))}
+              <button onClick={() => onPageChange((page ?? 1) + 1)} disabled={page === totalPages}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-200/60 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                <i className="fas fa-chevron-right"></i>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

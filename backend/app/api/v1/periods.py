@@ -1,14 +1,13 @@
 from datetime import datetime, timezone, date
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select, func, case, and_
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_session
-from app.models import Period, VMAssignment
+from app.models import Period
 from app.core.security import get_current_user
 from app.models import User
-from app.core.audit import log_event
 from app.services.period_service import get_period_code, period_dates, display_name
+from app.services.assignment_service import close_period as svc_close_period
 
 router = APIRouter()
 
@@ -94,42 +93,12 @@ async def close_period(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    period = await session.get(Period, period_id)
-    if not period:
-        raise HTTPException(status_code=404, detail="Per\u00edodo no encontrado")
-    if period.closed_at:
-        raise HTTPException(
-            status_code=409,
-            detail="Per\u00edodo ya est\u00e1 cerrado",
-        )
-
-    now = datetime.now(timezone.utc)
-
-    active_assignments = await session.execute(
-        select(VMAssignment).where(
-            VMAssignment.period_id == period_id,
-            VMAssignment.released_at.is_(None),
-        )
+    return await svc_close_period(
+        session=session,
+        period_id=period_id,
+        ip=_ip(request),
+        username=user.username,
     )
-    assignment_ids = []
-    for a in active_assignments.scalars().all():
-        a.released_at = now
-        assignment_ids.append(a.id)
-
-    period.is_active = False
-    period.closed_at = now
-    await session.commit()
-
-    await log_event(
-        session, "period_close", user.username,
-        f"Cerr\u00f3 per\u00edodo {period.code} ({len(assignment_ids)} asignaciones liberadas)",
-        "period", period.id, ip_address=_ip(request),
-    )
-
-    return {
-        "message": f"Per\u00edodo {period.code} cerrado",
-        "released_count": len(assignment_ids),
-    }
 
 
 @router.put("/{period_id}/activate")
@@ -140,7 +109,7 @@ async def activate_period(
 ):
     period = await session.get(Period, period_id)
     if not period:
-        raise HTTPException(status_code=404, detail="Per\u00edodo no encontrado")
+        raise HTTPException(status_code=404, detail="Período no encontrado")
 
     await session.execute(
         Period.__table__.update().where(Period.is_active == True).values(is_active=False)
@@ -150,10 +119,19 @@ async def activate_period(
     await session.commit()
     await session.refresh(period)
 
-    await log_event(
-        session, "period_activate", user.username,
-        f"Activ\u00f3 per\u00edodo {period.code}",
-        "period", period.id,
-    )
+    await _log_activate(session, period, user.username)
 
     return period
+
+
+async def _log_activate(
+    session: AsyncSession,
+    period: Period,
+    username: str,
+):
+    from app.core.audit import log_event
+    await log_event(
+        session, "period_activate", username,
+        f"Activó período {period.code}",
+        "period", period.id,
+    )
