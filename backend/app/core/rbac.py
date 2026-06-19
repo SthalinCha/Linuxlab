@@ -18,3 +18,4 @@ class RoleChecker:
 
 admin_only = RoleChecker("admin")
 admin_profesor = RoleChecker("admin", "profesor")
+profesor_only = RoleChecker("profesor")

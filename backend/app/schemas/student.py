@@ -5,11 +5,13 @@ from pydantic import BaseModel, ConfigDict, model_validator
 class StudentCreate(BaseModel):
     full_name: str
     email: str
+    course_id: int | None = None
 
 
 class StudentUpdate(BaseModel):
     full_name: str | None = None
     email: str | None = None
+    course_id: int | None = None
 
 
 class StudentResponse(BaseModel):

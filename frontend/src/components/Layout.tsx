@@ -4,18 +4,21 @@ import { api } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 import ChangePasswordModal from './ChangePasswordModal'
 
-const ALL_NAV_ITEMS = [
+const ADMIN_NAV = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/vms', label: 'Instancias' },
-  { to: '/assignments', label: 'Asignaciones' },
   { to: '/network', label: 'Accesos' },
-  { to: '/students', label: 'Estudiantes' },
   { to: '/audit', label: 'Auditoría' },
   { to: '/host', label: 'Host' },
   { to: '/users', label: 'Usuarios' },
 ]
 
-const PROFESOR_NAV = ['/dashboard', '/vms', '/assignments', '/students']
+const PROFESOR_NAV = [
+  { to: '/dashboard', label: 'Dashboard' },
+  { to: '/vms', label: 'Instancias' },
+  { to: '/assignments', label: 'Asignaciones' },
+  { to: '/students', label: 'Estudiantes' },
+]
 
 export default function Layout() {
   const navigate = useNavigate()
@@ -32,8 +35,8 @@ export default function Layout() {
   }, [isAdmin])
 
   const navItems = useMemo(() => {
-    if (isAdmin) return ALL_NAV_ITEMS
-    return ALL_NAV_ITEMS.filter(item => PROFESOR_NAV.includes(item.to))
+    if (isAdmin) return ADMIN_NAV
+    return PROFESOR_NAV
   }, [isAdmin])
 
   const username = user?.username || 'Admin'

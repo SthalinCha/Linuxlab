@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_session
 from app.models import Student, VMAssignment, Period, VirtualMachine
-from app.core.security import get_current_user
+from app.core.rbac import profesor_only
 from app.models import User
 from app.core.audit import log_event
 from app.schemas import StudentCreate, StudentUpdate, StudentResponse
@@ -24,15 +24,29 @@ def _ip(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
+async def _get_student_or_404(session: AsyncSession, student_id: int, user: User) -> Student:
+    student = await session.get(Student, student_id)
+    if not student or student.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Estudiante no encontrado")
+    if user.role.name == "profesor" and student.created_by != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para este estudiante")
+    return student
+
+
 @router.get("")
 async def list_students(
     search: Optional[str] = None,
+    course_id: Optional[int] = None,
     limit: int = 100,
     offset: int = 0,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
     query = select(Student).where(Student.deleted_at.is_(None))
+    if user.role.name == "profesor":
+        query = query.where(Student.created_by == user.id)
+    if course_id is not None:
+        query = query.where(Student.course_id == course_id)
     if search:
         query = query.where(
             or_(
@@ -54,7 +68,7 @@ async def create_student(
     body: StudentCreate,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
     existing = await session.execute(
         select(Student).where(Student.email == body.email)
@@ -65,6 +79,8 @@ async def create_student(
         full_name=body.full_name,
         email=body.email,
         student_code=body.email.split("@")[0],
+        created_by=user.id,
+        course_id=body.course_id,
     )
     session.add(student)
     await session.commit()
@@ -79,12 +95,9 @@ async def create_student(
 async def get_student(
     student_id: int,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
-    student = await session.get(Student, student_id)
-    if not student or student.deleted_at is not None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Estudiante no encontrado")
-    return student
+    return await _get_student_or_404(session, student_id, user)
 
 
 @router.put("/{student_id}")
@@ -93,11 +106,9 @@ async def update_student(
     body: StudentUpdate,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
-    student = await session.get(Student, student_id)
-    if not student or student.deleted_at is not None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Estudiante no encontrado")
+    student = await _get_student_or_404(session, student_id, user)
     update_data = body.model_dump(exclude_unset=True)
     if "email" in update_data and update_data["email"] != student.email:
         existing = await session.execute(
@@ -121,11 +132,9 @@ async def delete_student(
     student_id: int,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
-    student = await session.get(Student, student_id)
-    if not student or student.deleted_at is not None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Estudiante no encontrado")
+    student = await _get_student_or_404(session, student_id, user)
     active_assignment = await session.execute(
         select(VMAssignment).where(VMAssignment.student_id == student_id, VMAssignment.released_at.is_(None))
     )
@@ -145,26 +154,15 @@ async def import_csv(
     period_id: Optional[int] = None,
     request: Request = None,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
     content = await file.read()
     reader = csv.DictReader(StringIO(content.decode()))
     rows = list(reader)
     created = 0
-    reused = 0
     assigned = 0
     unassigned = 0
     errors = []
-
-    existing: dict[str, int] = {}
-    if rows:
-        emails = [r["email"] for r in rows if r.get("email")]
-        if emails:
-            result = await session.execute(
-                select(Student.email, Student.id).where(Student.email.in_(emails))
-            )
-            for email, sid in result:
-                existing[email] = sid
 
     csv_student_ids: set[int] = set()
     new_ids: list[int] = []
@@ -174,21 +172,19 @@ async def import_csv(
         if not email:
             errors.append("Fila sin email")
             continue
-        if email in existing:
-            csv_student_ids.add(existing[email])
-            reused += 1
-            continue
         try:
+            student_code = row.get("student_code") or email.split("@")[0]
             student = Student(
                 full_name=row["full_name"],
                 email=email,
-                student_code=row.get("student_code") or email.split("@")[0],
+                student_code=student_code,
+                created_by=user.id,
+                course_id=row.get("course_id") or None,
             )
             session.add(student)
             await session.flush()
             csv_student_ids.add(student.id)
             new_ids.append(student.id)
-            existing[email] = student.id
             created += 1
         except Exception as e:
             errors.append(f"Error al insertar {email}: {e}")
@@ -202,7 +198,6 @@ async def import_csv(
                 detail="Período no encontrado",
             )
 
-        # Only consider imported students that aren't already assigned in this period
         already_assigned = set()
         result = await session.execute(
             select(VMAssignment.student_id).where(
@@ -217,8 +212,12 @@ async def import_csv(
         if to_assign_ids:
             students_to_assign = await _find_unassigned_students(
                 session, period_id, student_ids=to_assign_ids,
+                created_by=user.id,
             )
-            available_vms = await _find_available_vms(session, period_id)
+            available_vms = await _find_available_vms(
+                session, period_id,
+                owner_id=user.id,
+            )
 
             pairs = list(zip(students_to_assign, available_vms))
             assignment_objs = []
@@ -247,12 +246,11 @@ async def import_csv(
 
     await session.commit()
     await log_event(session, "student_import", user.username,
-                    f"Importó {created} estudiantes desde CSV ({reused} reutilizados, "
-                    f"{assigned} asignados, {unassigned} sin VM, errores: {len(errors)})",
+                    f"Importó {created} estudiantes desde CSV ({assigned} asignados, "
+                    f"{unassigned} sin VM, errores: {len(errors)})",
                     "student", ip_address=_ip(request))
     return {
         "created": created,
-        "reused": reused,
         "assigned": assigned,
         "unassigned": unassigned,
         "errors": errors,
@@ -264,25 +262,30 @@ async def import_csv(
 async def undo_import(
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
     student_ids: list[int] = Body(...),
     period_id: int | None = Body(None),
 ):
     if not student_ids:
         return {"deleted_assignments": 0, "deleted_students": 0}
 
+    # Only delete assignments where the VM belongs to the current user
     deleted_assignments = 0
     result = await session.execute(
-        select(VMAssignment).where(VMAssignment.student_id.in_(student_ids))
+        select(VMAssignment).where(
+            VMAssignment.student_id.in_(student_ids),
+            VMAssignment.vm.has(VirtualMachine.owner_id == user.id),
+        )
     )
     for a in result.scalars().all():
         await session.delete(a)
         deleted_assignments += 1
 
+    # Only delete students created by the current user
     deleted_students = 0
     for sid in student_ids:
         student = await session.get(Student, sid)
-        if student:
+        if student and student.created_by == user.id:
             await session.delete(student)
             deleted_students += 1
 
@@ -297,12 +300,12 @@ async def undo_import(
 async def student_history(
     student_id: int,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
-    result = await session.execute(
-        select(VMAssignment)
-        .options(selectinload(VMAssignment.vm), selectinload(VMAssignment.student))
-        .where(VMAssignment.student_id == student_id)
-        .order_by(VMAssignment.assigned_at.desc())
-    )
+    query = select(VMAssignment).options(
+        selectinload(VMAssignment.vm), selectinload(VMAssignment.student)
+    ).where(VMAssignment.student_id == student_id)
+    query = query.where(VMAssignment.vm.has(owner_id=user.id))
+    query = query.order_by(VMAssignment.assigned_at.desc())
+    result = await session.execute(query)
     return result.scalars().all()

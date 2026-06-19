@@ -12,12 +12,14 @@ interface Props {
   onFormDataChange: (data: { vm_id: number; student_id: number }) => void
   availableVms: VirtualMachine[]
   availableStudents: Student[]
+  allStudents: Student[]
+  onDeleteStudent?: (id: number, name: string) => void
   search: string
   onSearchChange: (value: string) => void
   filter: string
   onFilterChange: (value: string) => void
   selectedIds: Set<number>
-  importResult: { created: number; reused: number; assigned: number; unassigned: number; errors: string[]; created_ids: number[] } | null
+  importResult: { created: number; assigned: number; unassigned: number; errors: string[]; created_ids: number[] } | null
   onImportResultDismiss: () => void
   onUndoImport?: () => void
   capacityWarning: string | null
@@ -26,8 +28,10 @@ interface Props {
   onCreate: (e: FormEvent) => Promise<void>
   onImportCsv: (file: File) => void
   onBulkRelease: () => void
+  onBulkDelete: () => void
   onClearSelection: () => void
   onClosePeriod: () => void
+  onActivatePeriod: () => void
   onExportCsv: () => void
 }
 
@@ -35,12 +39,13 @@ export default function AssignmentToolbar({
   allPeriods, selectedPeriodId, onPeriodChange,
   showForm, onToggleForm,
   formData, onFormDataChange, availableVms, availableStudents,
+  allStudents, onDeleteStudent,
   search, onSearchChange, filter, onFilterChange,
   selectedIds,
   importResult, onImportResultDismiss, onUndoImport,
   capacityWarning, onCapacityWarningDismiss,
   csvImporting,
-  onCreate, onImportCsv, onBulkRelease, onClearSelection, onClosePeriod, onExportCsv,
+  onCreate, onImportCsv, onBulkRelease, onBulkDelete, onClearSelection, onClosePeriod, onActivatePeriod, onExportCsv,
 }: Props) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const hiddenInputRef = useRef<HTMLInputElement>(null)
@@ -74,11 +79,19 @@ export default function AssignmentToolbar({
           {showForm ? 'Cancelar' : 'Nueva Asignación'}
         </button>
 
-        <button onClick={onClosePeriod}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-red-700 bg-red-50 border border-red-200 hover:bg-red-100 transition-all">
-          <i className="fas fa-lock"></i>
-          Finalizar Período
-        </button>
+        {selectedPeriod?.closed_at ? (
+          <button onClick={onActivatePeriod}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-all">
+            <i className="fas fa-lock-open"></i>
+            Reabrir Período
+          </button>
+        ) : (
+          <button onClick={onClosePeriod}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-red-700 bg-red-50 border border-red-200 hover:bg-red-100 transition-all">
+            <i className="fas fa-lock"></i>
+            Finalizar Período
+          </button>
+        )}
 
         <div className="flex-1"></div>
 
@@ -161,6 +174,11 @@ export default function AssignmentToolbar({
                 <i className="fas fa-link-slash"></i>
                 Desvincular
               </button>
+              <button onClick={onBulkDelete}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 transition-all">
+                <i className="fas fa-trash-can"></i>
+                Eliminar
+              </button>
               <button onClick={onClearSelection}
                 className="text-xs text-slate-400 hover:text-slate-600 underline">
                 <i className="fas fa-times mr-1"></i>Limpiar
@@ -176,7 +194,7 @@ export default function AssignmentToolbar({
           <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-sm">
             <i className="fas fa-circle-check text-blue-500 mt-0.5"></i>
             <div className="flex-1">
-              <strong>{importResult.created}</strong> creados{importResult.reused > 0 ? <>, <strong>{importResult.reused}</strong> reutilizados</> : ''}, <strong>{importResult.assigned}</strong> asignados
+              <strong>{importResult.created}</strong> creados, <strong>{importResult.assigned}</strong> asignados
               {importResult.unassigned > 0 && (
                 <span className="ml-1 text-amber-600">({importResult.unassigned} sin VM)</span>
               )}
@@ -255,6 +273,25 @@ export default function AssignmentToolbar({
               </button>
             </div>
           </form>
+          {onDeleteStudent && allStudents.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-slate-100">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                <i className="fas fa-user-graduate mr-1"></i>Todos los estudiantes ({allStudents.length})
+              </h4>
+              <div className="flex flex-wrap gap-2">
+                {allStudents.map(s => (
+                  <div key={s.id} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-700">
+                    <span className="max-w-[120px] truncate">{s.full_name}</span>
+                    <button onClick={() => onDeleteStudent(s.id, s.full_name)}
+                      className="text-slate-400 hover:text-red-500 transition-colors ml-0.5"
+                      title="Eliminar estudiante">
+                      <i className="fas fa-xmark"></i>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

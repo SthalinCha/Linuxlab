@@ -1,10 +1,11 @@
 from datetime import datetime, timezone, date
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_session
 from app.models import Period
-from app.core.security import get_current_user
+from app.core.rbac import profesor_only
 from app.models import User
 from app.services.period_service import get_period_code, period_dates, display_name
 from app.services.assignment_service import close_period as svc_close_period
@@ -19,7 +20,7 @@ def _ip(request: Request) -> str:
 @router.get("/current")
 async def get_current_period(
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
     code = get_period_code()
     result = await session.execute(select(Period).where(Period.code == code))
@@ -50,12 +51,14 @@ async def get_current_period(
 
 @router.get("")
 async def list_periods(
+    course_id: Optional[int] = None,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
-    result = await session.execute(
-        select(Period).order_by(Period.code.desc())
-    )
+    query = select(Period)
+    if course_id is not None:
+        query = query.where(Period.course_id == course_id)
+    result = await session.execute(query.order_by(Period.code.desc()))
     items = list(result.scalars().all())
     existing_codes = {p.code for p in items}
 
@@ -91,13 +94,14 @@ async def close_period(
     period_id: int,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
     return await svc_close_period(
         session=session,
         period_id=period_id,
         ip=_ip(request),
         username=user.username,
+        user_id=user.id,
     )
 
 
@@ -105,15 +109,19 @@ async def close_period(
 async def activate_period(
     period_id: int,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
     period = await session.get(Period, period_id)
     if not period:
         raise HTTPException(status_code=404, detail="Período no encontrado")
 
-    await session.execute(
-        Period.__table__.update().where(Period.is_active == True).values(is_active=False)
+    stmt = (
+        Period.__table__.update()
+        .where(Period.is_active == True)
+        .where(Period.id != period_id)
+        .values(is_active=False)
     )
+    await session.execute(stmt)
     period.is_active = True
     period.closed_at = None
     await session.commit()

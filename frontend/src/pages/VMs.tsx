@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../services/api'
 import { useToast } from '../hooks/useToast'
+import { useAuth } from '../hooks/useAuth'
 import { useVMs } from '../hooks/useVMs'
 import TerminalModal from '../components/TerminalModal'
 import ContentHeader from '../components/ContentHeader'
@@ -11,6 +12,7 @@ import VMModals from '../components/VMModals'
 
 export default function VMs() {
   const { addToast, removeToast } = useToast()
+  const { isAdmin } = useAuth()
   const [filter, setFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -121,11 +123,23 @@ export default function VMs() {
     }
   }
 
-  const handleAddVmConfirm = () => {
-    const nums = allVms
-      .map(v => parseInt(v.name.split('-').pop() || '0', 10))
-      .filter(n => !isNaN(n) && n > 0)
-    setConfirmAddVm(nums.length > 0 ? Math.max(Math.max(...nums) + 1, 10) : 10)
+  const handleAddVmConfirm = async () => {
+    try {
+      const res = await api.vms.nextNumber()
+      setConfirmAddVm(res.next_number)
+    } catch {
+      addToast('error', 'Error al obtener el siguiente número disponible')
+    }
+  }
+
+  const handleOpenLabModal = async () => {
+    try {
+      const res = await api.vms.nextNumber()
+      setLabStart(res.next_number)
+    } catch {
+      addToast('error', 'Error al obtener el siguiente número disponible')
+    }
+    setShowLabModal(true)
   }
 
   const doAddVm = async () => {
@@ -255,7 +269,7 @@ export default function VMs() {
         onBulkDelete={() => setConfirmBulkDelete(true)}
         onClearSelection={() => setSelectedIds(new Set())}
         onAddVm={handleAddVmConfirm}
-        onCreateLab={() => setShowLabModal(true)}
+        onCreateLab={handleOpenLabModal}
       />
 
       <VMTable
@@ -263,6 +277,7 @@ export default function VMs() {
         selectedIds={selectedIds}
         loading={loading}
         error={error}
+        isAdmin={isAdmin}
         barColor={barColor}
         openMenu={openMenu}
         onToggleSelect={toggleSelect}

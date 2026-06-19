@@ -12,7 +12,7 @@ import AssignmentTable from '../components/AssignmentTable'
 
 
 export default function Assignments() {
-  const { assignments, vms, students, allPeriods, currentPeriod, selectedPeriodId, loading, error, refetch: loadData, loadPeriods, handleSelectPeriod, page, totalPages, totalAssignments, goToPage } = useAssignments()
+  const { assignments, vms, students, allPeriods, currentPeriod, selectedPeriodId, loading, error, refetch: loadData, loadPeriods, handleSelectPeriod, handleActivatePeriod, page, totalPages, totalAssignments, goToPage } = useAssignments()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('todos')
 
@@ -23,10 +23,14 @@ export default function Assignments() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [confirmRelease, setConfirmRelease] = useState<number | null>(null)
   const [confirmBulkRelease, setConfirmBulkRelease] = useState(false)
+  const [confirmDeleteAssignment, setConfirmDeleteAssignment] = useState<number | null>(null)
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
   const [confirmClosePeriod, setConfirmClosePeriod] = useState(false)
+  const [confirmActivatePeriod, setConfirmActivatePeriod] = useState(false)
   const [confirmUndoImport, setConfirmUndoImport] = useState(false)
+  const [confirmDeleteStudent, setConfirmDeleteStudent] = useState<{ id: number; name: string } | null>(null)
 
-  const [importResult, setImportResult] = useState<{ created: number; reused: number; assigned: number; unassigned: number; errors: string[]; created_ids: number[] } | null>(null)
+  const [importResult, setImportResult] = useState<{ created: number; assigned: number; unassigned: number; errors: string[]; created_ids: number[] } | null>(null)
   const [csvImporting, setCsvImporting] = useState(false)
   const [capacityWarning, setCapacityWarning] = useState<string | null>(null)
 
@@ -101,8 +105,7 @@ export default function Assignments() {
     try {
       const result = await api.students.importCsv(file, activePeriodId || undefined)
       setImportResult(result)
-      const reused = result.reused > 0 ? `, ${result.reused} reutilizados` : ''
-      addToast('success', `${result.created} creados${reused}, ${result.assigned} asignados`)
+      addToast('success', `${result.created} creados, ${result.assigned} asignados`)
 
       if (result.unassigned > 0) {
         setCapacityWarning(`${result.unassigned} estudiante${result.unassigned !== 1 ? 's' : ''} del CSV no pudieron recibir VM por falta de recursos.`)
@@ -162,6 +165,53 @@ export default function Assignments() {
     }
   }
 
+  const handleActivate = async () => {
+    if (!activePeriodId) return
+    setConfirmActivatePeriod(false)
+    try {
+      await handleActivatePeriod(activePeriodId)
+      addToast('success', 'Período reabierto correctamente')
+      await loadData(activePeriodId)
+      await loadPeriods()
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Error al reabrir período')
+    }
+  }
+
+  const handleDeleteStudent = async (studentId: number, studentName: string) => {
+    setConfirmDeleteStudent(null)
+    try {
+      await api.students.delete(studentId)
+      addToast('success', `Estudiante "${studentName}" eliminado`)
+      await loadData(activePeriodId || undefined)
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Error al eliminar estudiante')
+    }
+  }
+
+  const handleDeleteAssignment = async (assignmentId: number) => {
+    setConfirmDeleteAssignment(null)
+    try {
+      await api.assignments.delete(assignmentId)
+      addToast('success', 'Asignación eliminada')
+      await loadData(activePeriodId || undefined)
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Error al eliminar asignación')
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    setConfirmBulkDelete(false)
+    try {
+      const result = await api.assignments.bulkDelete(Array.from(selectedIds))
+      setSelectedIds(new Set())
+      addToast('success', `${result.deleted} asignaciones eliminadas`)
+      await loadData(activePeriodId || undefined)
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Error al eliminar asignaciones')
+    }
+  }
+
   const toggleSelect = (id: number) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
@@ -178,6 +228,8 @@ export default function Assignments() {
 
   const assignedIds = new Set(assignments.filter(a => !a.released_at).map(a => a.student_id))
   const unassignedStudents = students.filter(s => s.is_active && !assignedIds.has(s.id))
+  const assignedStudentIds = new Set(assignments.map(a => a.student_id))
+  const studentsPerPeriod = Array.isArray(students) ? students.filter(s => assignedStudentIds.has(s.id)) : []
 
   const filteredAssignments = assignments.filter(a => {
     if (filter === 'asignados') return !a.released_at
@@ -203,7 +255,7 @@ export default function Assignments() {
   const isOpenPeriod = currentPeriod?.id === selectedPeriodId && !currentPeriod?.closed_at
   const totalStudents = isOpenPeriod
     ? students.filter(s => s.is_active).length
-    : new Set(assignments.map(a => a.student_id)).size
+    : studentsPerPeriod.length
   const pendingStudents = isOpenPeriod ? totalStudents - activeCount : 0
   const freeVms = vms.filter(v => v.name !== TEACHER_VM && !assignments.some(a => a.vm_id === v.id && !a.released_at)).length
 
@@ -245,6 +297,8 @@ export default function Assignments() {
         onFormDataChange={setFormData}
         availableVms={availableVms}
         availableStudents={availableStudents}
+        allStudents={studentsPerPeriod}
+        onDeleteStudent={(id, name) => setConfirmDeleteStudent({ id, name })}
         search={search}
         onSearchChange={setSearch}
         filter={filter}
@@ -259,8 +313,10 @@ export default function Assignments() {
         onImportCsv={handleImportCsv}
         onUndoImport={() => setConfirmUndoImport(true)}
         onBulkRelease={() => setConfirmBulkRelease(true)}
+        onBulkDelete={() => setConfirmBulkDelete(true)}
         onClearSelection={() => setSelectedIds(new Set())}
         onClosePeriod={() => setConfirmClosePeriod(true)}
+        onActivatePeriod={() => setConfirmActivatePeriod(true)}
         onExportCsv={handleExportCsv}
       />
 
@@ -280,6 +336,8 @@ export default function Assignments() {
         onToggleSelect={toggleSelect}
         onSelectAll={handleSelectAll}
         onConfirmRelease={(id) => setConfirmRelease(id)}
+        onDeleteAssignment={(id) => setConfirmDeleteAssignment(id)}
+        onDeleteStudent={(id, name) => setConfirmDeleteStudent({ id, name })}
         page={page + 1}
         totalPages={totalPages}
         totalItems={totalAssignments}
@@ -303,6 +361,22 @@ export default function Assignments() {
         onCancel={() => setConfirmBulkRelease(false)} />
 
       <ConfirmModal
+        open={confirmDeleteAssignment !== null}
+        title="¿Eliminar asignación?"
+        message="La asignación será eliminada permanentemente. Esto no se puede deshacer."
+        danger confirmLabel="Eliminar"
+        onConfirm={() => confirmDeleteAssignment !== null && handleDeleteAssignment(confirmDeleteAssignment)}
+        onCancel={() => setConfirmDeleteAssignment(null)} />
+
+      <ConfirmModal
+        open={confirmBulkDelete}
+        title="¿Eliminar seleccionados?"
+        message={`Se eliminarán permanentemente ${selectedIds.size} asignaciones. Esto no se puede deshacer.`}
+        danger confirmLabel="Eliminar todo"
+        onConfirm={handleBulkDelete}
+        onCancel={() => setConfirmBulkDelete(false)} />
+
+      <ConfirmModal
         open={confirmUndoImport}
         title="¿Revertir importación?"
         message={`Se eliminarán ${importResult?.created_ids?.length ?? 0} estudiantes recién importados y se liberarán sus asignaciones.`}
@@ -315,6 +389,22 @@ export default function Assignments() {
         periodCode={activePeriodCode}
         onConfirm={handleClosePeriod}
         onCancel={() => setConfirmClosePeriod(false)} />
+
+      <ConfirmModal
+        open={confirmActivatePeriod}
+        title="¿Reabrir período?"
+        message="El período volverá a estar activo. Las asignaciones liberadas no se restaurarán automáticamente."
+        confirmLabel="Reabrir"
+        onConfirm={handleActivate}
+        onCancel={() => setConfirmActivatePeriod(false)} />
+
+      <ConfirmModal
+        open={confirmDeleteStudent !== null}
+        title="¿Eliminar estudiante?"
+        message={`Se eliminará permanentemente a "${confirmDeleteStudent?.name}". Esto no se puede deshacer.`}
+        danger confirmLabel="Eliminar"
+        onConfirm={() => confirmDeleteStudent && handleDeleteStudent(confirmDeleteStudent.id, confirmDeleteStudent.name)}
+        onCancel={() => setConfirmDeleteStudent(null)} />
     </div>
   )
 }

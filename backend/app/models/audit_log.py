@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey, Index, text
+from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey, Index, func
 from sqlalchemy.orm import relationship
 
 from .base import Base
@@ -8,7 +8,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False, index=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False, index=True)
 
     event_type = Column(String(50), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)

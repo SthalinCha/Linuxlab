@@ -12,6 +12,7 @@ export interface VMDisplay {
   diskAlloc: number
   cpuUsage: number
   ramUsage: number
+  ownerName?: string
 }
 
 export interface Student {
@@ -38,6 +39,8 @@ export interface VirtualMachine {
   live_vcpus?: number
   max_ram_mb?: number
   cpu_usage_percent?: number
+  owner_id?: number
+  owner_name?: string
 }
 
 export interface Port {
@@ -111,6 +114,7 @@ export interface DashboardData {
   running_vms: number
   stopped_vms: number
   health_score: number
+  vcpu_assigned: number
   alerts_count: number
 }
 

@@ -1,6 +1,7 @@
 from .base import Base, BaseModel
 from .role import Role
 from .user import User
+from .course import Course
 from .student import Student
 from .period import Period
 from .vm_template import VMTemplate
@@ -14,12 +15,12 @@ __all__ = [
     "BaseModel",
     "Role",
     "User",
+    "Course",
     "Student",
     "Period",
     "VMTemplate",
     "VirtualMachine",
     "VMAssignment",
-
     "VMStateHistory",
     "AuditLog",
     "HostMetric",

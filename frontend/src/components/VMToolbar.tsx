@@ -88,20 +88,20 @@ export default function VMToolbar({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onAddVm}
-            className="px-3 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100"
-          >
-            <i className="fas fa-plus mr-1"></i>Añadir Máquina
-          </button>
-          <button
-            onClick={onCreateLab}
-            className="px-4 py-2 text-sm font-semibold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 shadow-sm"
-          >
-            <i className="fas fa-rocket mr-1.5"></i>Crear Laboratorio
-          </button>
-        </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onAddVm}
+              className="px-3 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100"
+            >
+              <i className="fas fa-plus mr-1"></i>Añadir Máquina
+            </button>
+            <button
+              onClick={onCreateLab}
+              className="px-4 py-2 text-sm font-semibold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 shadow-sm"
+            >
+              <i className="fas fa-rocket mr-1.5"></i>Crear Laboratorio
+            </button>
+          </div>
       </div>
     </div>
   )

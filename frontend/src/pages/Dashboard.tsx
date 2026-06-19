@@ -160,6 +160,7 @@ export default function Dashboard() {
             {data.total_vms}
           </div>
           <div className="text-sm text-slate-500 mb-4">Instancias Creadas</div>
+          <div className="text-xs text-slate-400 mb-3">vCPUs asignados: <span className="font-semibold text-slate-700">{data.vcpu_assigned}</span></div>
           <div className="flex gap-5 text-sm">
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" />

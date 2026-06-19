@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, func
 from sqlalchemy.orm import relationship
 
 from .base import BaseModel
@@ -10,7 +10,7 @@ class VMStateHistory(BaseModel):
     vm_id = Column(Integer, ForeignKey("virtual_machines.id"), nullable=False)
     old_state = Column(String(20), nullable=False)
     new_state = Column(String(20), nullable=False)
-    changed_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False, index=True)
+    changed_at = Column(DateTime, server_default=func.now(), nullable=False, index=True)
 
     vm = relationship("VirtualMachine", back_populates="state_history")
 

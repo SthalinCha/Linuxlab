@@ -159,6 +159,8 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ from_number, to_number }),
       }, opts?.signal),
+    nextNumber: (opts?: SignalOption) =>
+      request<{ next_number: number }>('/vms/next-number', undefined, opts?.signal),
     bulkSavePorts: (data: BulkPortsRequest, opts?: SignalOption) =>
       request<VirtualMachine>('/vms/bulk-ports', {
         method: 'POST',
@@ -232,6 +234,14 @@ export const api = {
       ),
     bulkRelease: (ids: number[], opts?: SignalOption) =>
       request<{ released: number }>('/assignments/bulk-release', {
+        method: 'POST', body: JSON.stringify({ ids }),
+      }, opts?.signal),
+    delete: (id: number, opts?: SignalOption) =>
+      request<{ message: string }>('/assignments/' + id, {
+        method: 'DELETE',
+      }, opts?.signal),
+    bulkDelete: (ids: number[], opts?: SignalOption) =>
+      request<{ deleted: number }>('/assignments/bulk-delete', {
         method: 'POST', body: JSON.stringify({ ids }),
       }, opts?.signal),
     export: async (periodId?: number, opts?: SignalOption) => {

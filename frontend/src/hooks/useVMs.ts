@@ -22,6 +22,7 @@ function toVMDisplay(vm: VirtualMachine, cpuCount: number, ramTotalGb: number): 
     cpuAlloc: vm.vcpus, ramAlloc: vm.ram_mb, diskAlloc: vm.disk_gb,
     cpuUsage: status === 'running' ? cpuUsage : 0,
     ramUsage: status === 'running' ? ramUsage : 0,
+    ownerName: vm.owner_name,
   }
 }
 

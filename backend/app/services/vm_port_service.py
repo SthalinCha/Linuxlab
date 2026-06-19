@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import VirtualMachine
@@ -19,7 +20,8 @@ async def add_port_to_vm(session: AsyncSession, vm_id: int, service: str, port: 
                          username: str, ip_address: str) -> dict | None:
     async with _port_lock:
         result = await session.execute(
-            select(VirtualMachine).where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
+            select(VirtualMachine).options(selectinload(VirtualMachine.owner))
+            .where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
         )
         vm = result.scalar_one_or_none()
         if not vm:
@@ -69,7 +71,8 @@ async def remove_port_from_vm(session: AsyncSession, vm_id: int, port_index: int
                               username: str, ip_address: str) -> dict | None:
     async with _port_lock:
         result = await session.execute(
-            select(VirtualMachine).where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
+            select(VirtualMachine).options(selectinload(VirtualMachine.owner))
+            .where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
         )
         vm = result.scalar_one_or_none()
         if not vm:
@@ -106,7 +109,8 @@ async def bulk_add_ports_to_vm(session: AsyncSession, vm_id: int, ports: list[di
                                 username: str, ip_address: str) -> dict | None:
     async with _port_lock:
         result = await session.execute(
-            select(VirtualMachine).where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
+            select(VirtualMachine).options(selectinload(VirtualMachine.owner))
+            .where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
         )
         vm = result.scalar_one_or_none()
         if not vm:

@@ -18,10 +18,12 @@ from app.core.audit import log_event
 from app.services.vm_list_service import list_vms as list_vms_service
 from app.services.vm_bulk_service import delete_vm_by_id, bulk_delete_vms, bulk_action_vms
 from app.services.vm_port_service import add_port_to_vm, remove_port_from_vm, bulk_add_ports_to_vm
+from sqlalchemy.orm import selectinload
 from app.schemas.virtual_machine import (
     VirtualMachineResponse,
     CloneRequest, CloneRangeRequest, CreateLabRequest,
     BulkDeleteRequest, AddPortRequest, BulkPortsRequest, BulkActionRequest, RecreateRangeRequest,
+    NextNumberResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,20 @@ clone_service = CloneService()
 
 def _ip_from_request(request: Request) -> str:
     return request.client.host if request.client else ""
+
+
+async def _get_vm_or_404(session: AsyncSession, vm_id: int, user: User) -> VirtualMachine:
+    result = await session.execute(
+        select(VirtualMachine)
+        .options(selectinload(VirtualMachine.owner))
+        .where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
+    )
+    vm = result.scalar_one_or_none()
+    if not vm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM no encontrada")
+    if user.role.name == "profesor" and vm.owner_id != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para esta VM")
+    return vm
 
 
 async def _auto_iptables(num: int):
@@ -49,6 +65,21 @@ async def _auto_uniptables(num: int):
         logger.warning("Error eliminando iptables para VM %s: %s", num, e)
 
 
+async def _get_next_vm_number(session: AsyncSession) -> int:
+    result = await session.execute(
+        select(VirtualMachine.name).where(VirtualMachine.deleted_at.is_(None))
+    )
+    names = result.scalars().all()
+    nums = []
+    for n in names:
+        if n.startswith("vhost-"):
+            try:
+                nums.append(int(n.split("-")[-1]))
+            except ValueError:
+                continue
+    return max(nums) + 1 if nums else 10
+
+
 async def _create_single_vm(
     session: AsyncSession,
     clone_service,
@@ -61,6 +92,7 @@ async def _create_single_vm(
     prefix: str = "vhost",
     username: str = "",
     ip_address: str = "",
+    owner_id: int | None = None,
 ) -> dict:
     from sqlalchemy.exc import IntegrityError
     name = f"{prefix}-{num}"
@@ -95,6 +127,8 @@ async def _create_single_vm(
         existing_vm.current_state = "shut off"
         existing_vm.ports = build_ports(num)
         existing_vm.deleted_at = None
+        if owner_id is not None:
+            existing_vm.owner_id = owner_id
         vm = existing_vm
         await session.commit()
         await session.refresh(vm)
@@ -105,6 +139,7 @@ async def _create_single_vm(
             vcpus=vcpus or 1, ram_mb=ram_mb or 4096,
             disk_gb=disk_gb, current_state="shut off",
             ports=build_ports(num),
+            owner_id=owner_id,
         )
         session.add(vm)
         try:
@@ -130,7 +165,13 @@ async def list_vms(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    return await list_vms_service(session, vm_manager, state, include_templates, limit, offset)
+    result = await list_vms_service(session, vm_manager, state, include_templates, limit, offset, user)
+    items = []
+    for vm in result["items"]:
+        item = VirtualMachineResponse.model_validate(vm)
+        item.owner_name = vm.owner.full_name if vm.owner else None
+        items.append(item)
+    return {"items": items, "total": result["total"], "limit": result["limit"], "offset": result["offset"]}
 
 
 @router.get("/light")
@@ -138,14 +179,25 @@ async def list_vms_light(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    result = await session.execute(
-        select(VirtualMachine).where(
-            VirtualMachine.deleted_at.is_(None),
-            VirtualMachine.template_id.is_(None),
-        ).order_by(VirtualMachine.name)
+    query = select(VirtualMachine).where(
+        VirtualMachine.deleted_at.is_(None),
+        VirtualMachine.template_id.is_(None),
     )
+    if user.role.name == "profesor":
+        query = query.where(VirtualMachine.owner_id == user.id)
+    query = query.order_by(VirtualMachine.name)
+    result = await session.execute(query)
     vms = result.scalars().all()
     return {"items": vms}
+
+
+@router.get("/next-number", response_model=NextNumberResponse)
+async def get_next_vm_number(
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    next_number = await _get_next_vm_number(session)
+    return NextNumberResponse(next_number=next_number)
 
 
 @router.get("/{vm_id}", response_model=VirtualMachineResponse)
@@ -154,18 +206,15 @@ async def get_vm(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    result = await session.execute(
-        select(VirtualMachine).where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
-    )
-    vm = result.scalar_one_or_none()
-    if not vm:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM no encontrada")
+    vm = await _get_vm_or_404(session, vm_id, user)
     domain = await asyncio.to_thread(vm_manager.get_domain, vm.name)
     if domain:
         vm.current_state = domain["state"]
         vm.ram_used_mb = domain.get("ram_used_mb")
         vm.ram_percent = domain.get("ram_percent")
-    return vm
+    resp = VirtualMachineResponse.model_validate(vm)
+    resp.owner_name = vm.owner.full_name if vm.owner else None
+    return resp
 
 
 @router.post("/{vm_id}/start")
@@ -175,12 +224,7 @@ async def start_vm(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    result = await session.execute(
-        select(VirtualMachine).where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
-    )
-    vm = result.scalar_one_or_none()
-    if not vm:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM no encontrada")
+    vm = await _get_vm_or_404(session, vm_id, user)
     ok = await asyncio.to_thread(vm_manager.start, vm.name)
     if not ok:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al iniciar VM")
@@ -198,12 +242,7 @@ async def shutdown_vm(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    result = await session.execute(
-        select(VirtualMachine).where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
-    )
-    vm = result.scalar_one_or_none()
-    if not vm:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM no encontrada")
+    vm = await _get_vm_or_404(session, vm_id, user)
     ok = await asyncio.to_thread(vm_manager.shutdown, vm.name)
     if not ok:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al apagar VM")
@@ -221,12 +260,7 @@ async def reboot_vm(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    result = await session.execute(
-        select(VirtualMachine).where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
-    )
-    vm = result.scalar_one_or_none()
-    if not vm:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM no encontrada")
+    vm = await _get_vm_or_404(session, vm_id, user)
     ok = await asyncio.to_thread(vm_manager.reboot, vm.name)
     if not ok:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al reiniciar VM")
@@ -242,12 +276,7 @@ async def destroy_vm(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    result = await session.execute(
-        select(VirtualMachine).where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
-    )
-    vm = result.scalar_one_or_none()
-    if not vm:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM no encontrada")
+    vm = await _get_vm_or_404(session, vm_id, user)
     ok = await asyncio.to_thread(vm_manager.destroy, vm.name)
     if not ok:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al forzar apagado")
@@ -272,12 +301,16 @@ async def clone_vm(
         ram_mb=body.ram_mb,
         username=user.username,
         ip_address=_ip_from_request(request),
+        owner_id=user.id,
     )
     if r["status"] == "skipped":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"VM {r['name']} ya existe")
     if r["status"] == "error":
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=r["reason"])
-    return r["vm"]
+    vm = r["vm"]
+    resp = VirtualMachineResponse.model_validate(vm)
+    resp.owner_name = vm.owner.full_name if vm.owner else None
+    return resp
 
 
 @router.post("/clone-range")
@@ -299,6 +332,7 @@ async def clone_vm_range(
             ram_mb=body.ram_mb,
             username=user.username,
             ip_address=_ip_from_request(request),
+            owner_id=user.id,
         )
         results.append({"number": num, "name": r["name"], "status": r["status"], "reason": r["reason"]})
 
@@ -328,6 +362,7 @@ async def create_lab(
             prefix=body.prefix,
             username=user.username,
             ip_address=_ip_from_request(request),
+            owner_id=user.id,
         )
         results.append({"number": num, "name": r["name"], "status": r["status"], "reason": r["reason"]})
 
@@ -341,12 +376,7 @@ async def recreate_vm(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    result = await session.execute(
-        select(VirtualMachine).where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
-    )
-    vm = result.scalar_one_or_none()
-    if not vm:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM no encontrada")
+    vm = await _get_vm_or_404(session, vm_id, user)
 
     assignment_active = await session.execute(
         select(VMAssignment).where(
@@ -403,6 +433,10 @@ async def recreate_vm_range(
             results.append({"number": num, "name": name, "status": "not_found"})
             continue
 
+        if user.role.name == "profesor" and vm.owner_id != user.id:
+            results.append({"number": num, "name": name, "status": "skipped", "reason": "no es tu VM"})
+            continue
+
         r = await asyncio.to_thread(clone_service.recreate_vm, vm.name, template_name=vm.template_name or "ubuntu-server-main")
         if not r["success"]:
             results.append({"number": num, "name": name, "status": "error", "reason": r["error"]})
@@ -429,10 +463,9 @@ async def delete_vm(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
+    vm = await _get_vm_or_404(session, vm_id, user)
     result = await delete_vm_by_id(session, vm_id, vm_manager, clone_service,
                                    user.username, _ip_from_request(request))
-    if not result:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM no encontrada")
     return result
 
 
@@ -445,7 +478,16 @@ async def bulk_delete(
 ):
     if not body.ids:
         raise HTTPException(status_code=422, detail="Lista de IDs vacía")
-    return await bulk_delete_vms(session, body.ids, vm_manager, clone_service,
+    ids = body.ids
+    if user.role.name == "profesor":
+        result = await session.execute(
+            select(VirtualMachine.id).where(
+                VirtualMachine.id.in_(body.ids),
+                VirtualMachine.owner_id == user.id,
+            )
+        )
+        ids = [r[0] for r in result.all()]
+    return await bulk_delete_vms(session, ids, vm_manager, clone_service,
                                  user.username, _ip_from_request(request))
 
 
@@ -461,7 +503,16 @@ async def bulk_action(
     action_map = {"start", "shutdown", "reboot", "destroy"}
     if body.action not in action_map:
         raise HTTPException(status_code=422, detail=f"Acción '{body.action}' no válida")
-    return await bulk_action_vms(session, body.ids, body.action, vm_manager,
+    ids = body.ids
+    if user.role.name == "profesor":
+        result = await session.execute(
+            select(VirtualMachine.id).where(
+                VirtualMachine.id.in_(body.ids),
+                VirtualMachine.owner_id == user.id,
+            )
+        )
+        ids = [r[0] for r in result.all()]
+    return await bulk_action_vms(session, ids, body.action, vm_manager,
                                  user.username, _ip_from_request(request))
 
 
@@ -473,11 +524,12 @@ async def add_port(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
+    await _get_vm_or_404(session, vm_id, user)
     result = await add_port_to_vm(session, vm_id, body.service, body.port,
                                   user.username, _ip_from_request(request))
-    if not result:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM no encontrada")
-    return result
+    resp = VirtualMachineResponse.model_validate(result)
+    resp.owner_name = result.owner.full_name if result.owner else None
+    return resp
 
 
 @router.delete("/{vm_id}/ports/{port_index}", response_model=VirtualMachineResponse)
@@ -488,11 +540,12 @@ async def remove_port(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
+    await _get_vm_or_404(session, vm_id, user)
     result = await remove_port_from_vm(session, vm_id, port_index,
                                        user.username, _ip_from_request(request))
-    if not result:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM o puerto no encontrado")
-    return result
+    resp = VirtualMachineResponse.model_validate(result)
+    resp.owner_name = result.owner.full_name if result.owner else None
+    return resp
 
 
 @router.post("/bulk-ports", response_model=VirtualMachineResponse)
@@ -502,8 +555,9 @@ async def bulk_ports(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
+    await _get_vm_or_404(session, body.vm_id, user)
     result = await bulk_add_ports_to_vm(session, body.vm_id, [p.model_dump() for p in body.ports],
                                         user.username, _ip_from_request(request))
-    if not result:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM no encontrada")
-    return result
+    resp = VirtualMachineResponse.model_validate(result)
+    resp.owner_name = result.owner.full_name if result.owner else None
+    return resp

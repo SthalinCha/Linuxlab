@@ -17,6 +17,8 @@ interface Props {
   onToggleSelect: (id: number) => void
   onSelectAll: () => void
   onConfirmRelease: (id: number) => void
+  onDeleteAssignment?: (id: number) => void
+  onDeleteStudent?: (id: number, name: string) => void
   page?: number
   totalPages?: number
   totalItems?: number
@@ -27,6 +29,7 @@ export default function AssignmentTable({
   loading, filter, search, filteredAssignments, unassignedStudents,
   students, vms, selectedIds, stateColors, stateDots,
   getVmName, getStudentName, onToggleSelect, onSelectAll, onConfirmRelease,
+  onDeleteAssignment, onDeleteStudent,
   page, totalPages, totalItems, onPageChange,
 }: Props) {
   if (loading) {
@@ -54,6 +57,7 @@ export default function AssignmentTable({
                 <tr className="border-b border-slate-100 bg-slate-50/60">
                   <th className="px-4 py-3 text-left text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500">Estudiante</th>
                   <th className="px-4 py-3 text-left text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500">Correo</th>
+                  <th className="px-4 py-3 w-12"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -61,6 +65,15 @@ export default function AssignmentTable({
                   <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="px-4 py-3 font-medium text-slate-800">{s.full_name}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">{s.email}</td>
+                    <td className="px-4 py-3 w-12">
+                      {onDeleteStudent && (
+                        <button onClick={() => onDeleteStudent(s.id, s.full_name)}
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                          title="Eliminar estudiante">
+                          <i className="fas fa-trash-can text-sm"></i>
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -173,9 +186,32 @@ export default function AssignmentTable({
                           title="Desvincular estudiante">
                           <i className="fas fa-link-slash text-sm"></i>
                         </button>
+                        {onDeleteAssignment && (
+                          <button onClick={() => onDeleteAssignment(a.id)}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                            title="Eliminar asignación">
+                            <i className="fas fa-trash-can text-sm"></i>
+                          </button>
+                        )}
+                        {onDeleteStudent && (
+                          <button onClick={() => onDeleteStudent(a.student_id, student?.full_name || getStudentName(a.student_id))}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                            title="Eliminar estudiante">
+                            <i className="fas fa-user-slash text-sm"></i>
+                          </button>
+                        )}
                       </div>
                     ) : (
-                      <span className="text-xs text-slate-400 italic">Liberada</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-slate-400 italic">Liberada</span>
+                        {onDeleteStudent && (
+                          <button onClick={() => onDeleteStudent(a.student_id, student?.full_name || getStudentName(a.student_id))}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                            title="Eliminar estudiante">
+                            <i className="fas fa-trash-can text-sm"></i>
+                          </button>
+                        )}
+                      </div>
                     )}
                   </td>
                 </tr>

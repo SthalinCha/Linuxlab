@@ -3,9 +3,10 @@ import time
 from typing import Optional
 
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import VirtualMachine
+from app.models import User, VirtualMachine
 
 
 _cpu_cache: dict[str, dict] = {}
@@ -18,9 +19,12 @@ async def list_vms(
     include_templates: bool = False,
     limit: int = 100,
     offset: int = 0,
+    user: User | None = None,
 ) -> dict:
 
-    query = select(VirtualMachine).where(VirtualMachine.deleted_at.is_(None))
+    query = select(VirtualMachine).options(selectinload(VirtualMachine.owner)).where(VirtualMachine.deleted_at.is_(None))
+    if user and user.role.name == "profesor":
+        query = query.where(VirtualMachine.owner_id == user.id)
     if not include_templates:
         query = query.where(VirtualMachine.template_id.is_(None))
     if state:

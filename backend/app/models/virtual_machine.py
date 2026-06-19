@@ -36,7 +36,10 @@ class VirtualMachine(BaseModel):
 
     ports = Column(JSON, nullable=True)
 
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+
     template = relationship("VMTemplate", back_populates="virtual_machines")
+    owner = relationship("User", back_populates="virtual_machines")
     assignments = relationship("VMAssignment", back_populates="vm")
     state_history = relationship("VMStateHistory", back_populates="vm", cascade="all, delete-orphan")
 

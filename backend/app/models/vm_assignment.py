@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from sqlalchemy import (
     Column, Integer, String, DateTime, Text, ForeignKey,
-    CheckConstraint, Index, text
+    CheckConstraint, Index, func
 )
 from sqlalchemy.orm import relationship
 
@@ -16,7 +16,7 @@ class VMAssignment(BaseModel):
     period_id = Column(Integer, ForeignKey("periods.id"), nullable=False)
 
     assigned_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    assigned_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+    assigned_at = Column(DateTime, server_default=func.now(), nullable=False)
     released_at = Column(DateTime, nullable=True)
     notes = Column(Text)
 

@@ -27,10 +27,10 @@ export default function App() {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
         <Route path="vms" element={<ErrorBoundary><VMs /></ErrorBoundary>} />
-        <Route path="assignments" element={<ErrorBoundary><Assignments /></ErrorBoundary>} />
+        <Route path="assignments" element={<ErrorBoundary><ProtectedRoute roles={['profesor']}><Assignments /></ProtectedRoute></ErrorBoundary>} />
         <Route path="network" element={<ErrorBoundary><ProtectedRoute roles={['admin']}><Network /></ProtectedRoute></ErrorBoundary>} />
         <Route path="host" element={<ErrorBoundary><ProtectedRoute roles={['admin']}><Host /></ProtectedRoute></ErrorBoundary>} />
-        <Route path="students" element={<ErrorBoundary><Students /></ErrorBoundary>} />
+        <Route path="students" element={<ErrorBoundary><ProtectedRoute roles={['profesor']}><Students /></ProtectedRoute></ErrorBoundary>} />
         <Route path="audit" element={<ErrorBoundary><ProtectedRoute roles={['admin']}><Audit /></ProtectedRoute></ErrorBoundary>} />
         <Route path="users" element={<ErrorBoundary><ProtectedRoute roles={['admin']}><Users /></ProtectedRoute></ErrorBoundary>} />
       </Route>

@@ -73,6 +73,8 @@ class VirtualMachineResponse(BaseModel):
     disk_gb: int
     current_state: str
     ports: list[dict] | None
+    owner_id: int | None = None
+    owner_name: str | None = None
     ram_used_mb: int | None = None
     ram_percent: float | None = None
     live_vcpus: int | None = None
@@ -84,8 +86,12 @@ class VirtualMachineResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class NextNumberResponse(BaseModel):
+    next_number: int
+
+
 class CloneRequest(BaseModel):
-    number: int
+    number: int | None = None
     template_name: Optional[str] = None
     vcpus: Optional[int] = None
     ram_mb: Optional[int] = None

@@ -7,6 +7,7 @@ interface Props {
   selectedIds: Set<number>
   loading: boolean
   error: string | null
+  isAdmin: boolean
   barColor: (pct: number) => string
   openMenu: number | null
   onToggleSelect: (id: number) => void
@@ -20,7 +21,7 @@ interface Props {
 }
 
 export default function VMTable({
-  filteredVms, selectedIds, loading, error, barColor, openMenu,
+  filteredVms, selectedIds, loading, error, isAdmin, barColor, openMenu,
   onToggleSelect, onToggleSelectAll, onAction, onDelete, onDestroy,
   onRecreate, onTerminal, onMenuOpen,
 }: Props) {
@@ -52,6 +53,9 @@ export default function VMTable({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
+              {isAdmin && (
+                <th className="text-left px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Profesor</th>
+              )}
               <th className="px-4 py-3.5 w-10">
                 <input
                   type="checkbox"
@@ -80,6 +84,9 @@ export default function VMTable({
                   key={vm.id}
                   className={`hover:bg-slate-50 transition-colors ${selectedIds.has(vm.id) ? 'bg-sky-50' : ''}`}
                 >
+                  {isAdmin && (
+                    <td className="px-4 py-3 text-xs text-slate-600">{vm.ownerName || '—'}</td>
+                  )}
                   <td className="px-4 py-3">
                     <input
                       type="checkbox"

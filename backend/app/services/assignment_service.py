@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models import VMAssignment, Student, VirtualMachine, Period, AuditLog
+from app.models import VMAssignment, Student, VirtualMachine, Period, AuditLog, User
 from app.core.audit import log_event
 
 
@@ -11,6 +12,7 @@ async def _validate_assignment(
     vm_id: int | None,
     student_id: int,
     period_id: int,
+    user: User | None = None,
 ) -> tuple:
     """Validate assignment rules and return (vm, student, period).
 
@@ -30,6 +32,11 @@ async def _validate_assignment(
             raise HTTPException(
                 status_code=422,
                 detail=f"VM en estado '{vm.current_state}' no es asignable",
+            )
+        if user and user.role.name == "profesor" and vm.owner_id != user.id:
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permiso para asignar esta VM",
             )
 
     student = await session.get(Student, student_id)
@@ -89,9 +96,10 @@ async def create_assignment(
     ip: str,
     username: str,
     notes: Optional[str] = None,
+    user: User | None = None,
 ) -> VMAssignment:
     vm, student, period = await _validate_assignment(
-        session, vm_id, student_id, period_id,
+        session, vm_id, student_id, period_id, user=user,
     )
 
     has_vm = vm_id is not None and vm_id > 0
@@ -121,6 +129,7 @@ async def release_assignment(
     assignment_id: int,
     ip: str,
     username: str,
+    user: User | None = None,
 ) -> dict:
     from fastapi import HTTPException, status
 
@@ -129,6 +138,15 @@ async def release_assignment(
         raise HTTPException(status_code=404, detail="Asignación no encontrada")
     if assignment.released_at:
         raise HTTPException(status_code=409, detail="Asignación ya liberada")
+
+    if user and user.role.name == "profesor":
+        if assignment.vm_id:
+            vm = await session.get(VirtualMachine, assignment.vm_id)
+            if vm and vm.owner_id != user.id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="No tienes permiso para liberar esta asignación",
+                )
 
     vm_id = assignment.vm_id
     assignment.released_at = datetime.now(timezone.utc)
@@ -145,6 +163,7 @@ async def _find_unassigned_students(
     session: AsyncSession,
     period_id: int,
     student_ids: set[int] | None = None,
+    created_by: int | None = None,
 ) -> list[Student]:
     """Find students without an active assignment in the given period."""
     query = select(Student).where(
@@ -156,6 +175,8 @@ async def _find_unassigned_students(
             )
         ),
     )
+    if created_by is not None:
+        query = query.where(Student.created_by == created_by)
     if student_ids is not None:
         query = query.where(Student.id.in_(student_ids))
     query = query.order_by(Student.full_name)
@@ -166,22 +187,25 @@ async def _find_unassigned_students(
 async def _find_available_vms(
     session: AsyncSession,
     period_id: int,
+    owner_id: int | None = None,
 ) -> list[VirtualMachine]:
     """Find VMs without an active assignment in the given period."""
-    result = await session.execute(
-        select(VirtualMachine).where(
-            VirtualMachine.deleted_at.is_(None),
-            VirtualMachine.template_id.is_(None),
-            VirtualMachine.name != "vhost-10",
-            ~VirtualMachine.id.in_(
-                select(VMAssignment.vm_id).where(
-                    VMAssignment.period_id == period_id,
-                    VMAssignment.released_at.is_(None),
-                    VMAssignment.vm_id.isnot(None),
-                )
-            ),
-        ).order_by(VirtualMachine.name)
+    query = select(VirtualMachine).where(
+        VirtualMachine.deleted_at.is_(None),
+        VirtualMachine.template_id.is_(None),
+        VirtualMachine.name != "vhost-10",
+        ~VirtualMachine.id.in_(
+            select(VMAssignment.vm_id).where(
+                VMAssignment.period_id == period_id,
+                VMAssignment.released_at.is_(None),
+                VMAssignment.vm_id.isnot(None),
+            )
+        ),
     )
+    if owner_id is not None:
+        query = query.where(VirtualMachine.owner_id == owner_id)
+    query = query.order_by(VirtualMachine.name)
+    result = await session.execute(query)
     return list(result.scalars().all())
 
 
@@ -192,6 +216,7 @@ async def auto_assign(
     ip: str,
     username: str,
     assigned_by: int,
+    owner_id: int | None = None,
 ) -> dict:
     from fastapi import HTTPException
 
@@ -199,8 +224,10 @@ async def auto_assign(
     if not period:
         raise HTTPException(status_code=404, detail="Período no encontrado")
 
-    unassigned = await _find_unassigned_students(session, period_id)
-    available = await _find_available_vms(session, period_id)
+    unassigned = await _find_unassigned_students(
+        session, period_id, created_by=owner_id,
+    )
+    available = await _find_available_vms(session, period_id, owner_id=owner_id)
 
     pairs = list(zip(unassigned, available))
 
@@ -253,6 +280,7 @@ async def batch_create(
     ip: str,
     username: str,
     assigned_by: int,
+    user: User | None = None,
 ) -> dict:
     created = []
     errors = []
@@ -268,6 +296,13 @@ async def batch_create(
                 "student_found": student is not None,
             })
             continue
+        if user and user.role.name == "profesor":
+            if vm.owner_id != user.id:
+                errors.append({"vm_id": item.vm_id, "student_id": item.student_id, "reason": "No tienes permiso para esta VM"})
+                continue
+            if student.created_by != user.id:
+                errors.append({"vm_id": item.vm_id, "student_id": item.student_id, "reason": "No tienes permiso para este estudiante"})
+                continue
         assignment = VMAssignment(
             vm_id=item.vm_id,
             student_id=item.student_id,
@@ -302,6 +337,7 @@ async def bulk_release(
         select(VMAssignment).where(
             VMAssignment.id.in_(ids),
             VMAssignment.released_at.is_(None),
+            VMAssignment.vm.has(VirtualMachine.owner_id == user_id),
         )
     )
     assignments = result.scalars().all()
@@ -326,6 +362,7 @@ async def close_period(
     period_id: int,
     ip: str,
     username: str,
+    user_id: int | None = None,
 ) -> dict:
     from fastapi import HTTPException
 
@@ -333,13 +370,14 @@ async def close_period(
     if not period:
         raise HTTPException(status_code=404, detail="Período no encontrado")
 
-    # Soft-release all active assignments instead of deleting them
-    result = await session.execute(
-        select(VMAssignment).where(
-            VMAssignment.period_id == period_id,
-            VMAssignment.released_at.is_(None),
-        )
+    # Soft-release only the current user's active assignments
+    query = select(VMAssignment).where(
+        VMAssignment.period_id == period_id,
+        VMAssignment.released_at.is_(None),
     )
+    if user_id is not None:
+        query = query.where(VMAssignment.vm.has(VirtualMachine.owner_id == user_id))
+    result = await session.execute(query)
     active = result.scalars().all()
     now = datetime.now(timezone.utc)
     for a in active:

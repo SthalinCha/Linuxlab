@@ -5,12 +5,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_session
-from app.models import VMAssignment, Period
-from app.core.security import get_current_user
+from app.models import VMAssignment, Period, VirtualMachine
+from app.core.rbac import profesor_only
 from app.models import User
 from app.services.assignment_service import (
     create_assignment as svc_create,
@@ -60,9 +60,10 @@ async def list_assignments(
     limit: int = 100,
     offset: int = 0,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
     base = select(VMAssignment).where(VMAssignment.deleted_at.is_(None))
+    base = base.where(VMAssignment.vm.has(owner_id=user.id))
     if period_id:
         base = base.where(VMAssignment.period_id == period_id)
     elif active_only:
@@ -83,9 +84,10 @@ async def export_assignments(
     active_only: bool = False,
     period_id: Optional[int] = None,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
     base = select(VMAssignment).where(VMAssignment.deleted_at.is_(None))
+    base = base.where(VMAssignment.vm.has(owner_id=user.id))
     if period_id:
         base = base.where(VMAssignment.period_id == period_id)
     elif active_only:
@@ -132,7 +134,7 @@ async def export_assignments(
 @router.get("/periods")
 async def list_periods(
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
     query = select(
         Period.id,
@@ -151,6 +153,12 @@ async def list_periods(
         Period.id
     ).order_by(
         Period.code.desc()
+    )
+
+    # Scope by VM ownership so each profesor only sees their own assignment stats
+    query = query.where(
+        (VMAssignment.id.is_(None))
+        | (VMAssignment.vm.has(VirtualMachine.owner_id == user.id))
     )
 
     result = await session.execute(query)
@@ -178,7 +186,7 @@ async def create_assignment(
     body: AssignmentCreate,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
     return await svc_create(
         session=session,
@@ -189,6 +197,7 @@ async def create_assignment(
         ip=_ip(request),
         username=user.username,
         notes=body.notes,
+        user=user,
     )
 
 
@@ -197,13 +206,14 @@ async def release_assignment(
     assignment_id: int,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
     return await svc_release(
         session=session,
         assignment_id=assignment_id,
         ip=_ip(request),
         username=user.username,
+        user=user,
     )
 
 
@@ -212,7 +222,7 @@ async def bulk_release(
     body: BulkReleaseRequest,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
     return await svc_bulk_release(
         session=session,
@@ -228,7 +238,7 @@ async def auto_assign(
     body: AutoAssignRequest,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
     return await svc_auto_assign(
         session=session,
@@ -237,6 +247,7 @@ async def auto_assign(
         ip=_ip(request),
         username=user.username,
         assigned_by=user.id,
+        owner_id=user.id,
     )
 
 
@@ -245,7 +256,7 @@ async def batch_create(
     body: BatchCreateRequest,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(profesor_only),
 ):
     return await svc_batch_create(
         session=session,
@@ -253,4 +264,72 @@ async def batch_create(
         ip=_ip(request),
         username=user.username,
         assigned_by=user.id,
+        user=user,
     )
+
+
+class BulkDeleteRequest(BaseModel):
+    ids: list[int]
+
+
+@router.delete("/{assignment_id}")
+async def delete_assignment(
+    assignment_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(profesor_only),
+):
+    assignment = await session.get(VMAssignment, assignment_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Asignación no encontrada")
+
+    if user.role.name == "profesor":
+        if assignment.vm_id:
+            vm = await session.get(VirtualMachine, assignment.vm_id)
+            if vm and vm.owner_id != user.id:
+                raise HTTPException(status_code=403, detail="No tienes permiso para eliminar esta asignación")
+        else:
+            raise HTTPException(status_code=403, detail="No tienes permiso para eliminar esta asignación")
+
+    await session.delete(assignment)
+    await session.commit()
+
+    from app.core.audit import log_event
+    await log_event(session, "assignment_delete", user.username,
+                    f"Eliminó asignación #{assignment_id}",
+                    "assignment", assignment_id, ip_address=_ip(request))
+    return {"message": "Asignación eliminada"}
+
+
+@router.post("/bulk-delete")
+async def bulk_delete(
+    body: BulkDeleteRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(profesor_only),
+):
+    if not body.ids:
+        raise HTTPException(status_code=422, detail="Lista de IDs vacía")
+
+    from app.core.audit import log_event
+
+    deleted = 0
+    for aid in body.ids:
+        assignment = await session.get(VMAssignment, aid)
+        if not assignment:
+            continue
+        if user.role.name == "profesor":
+            if assignment.vm_id:
+                vm = await session.get(VirtualMachine, assignment.vm_id)
+                if not vm or vm.owner_id != user.id:
+                    continue
+            else:
+                continue
+        await session.delete(assignment)
+        deleted += 1
+        await log_event(session, "assignment_delete", user.username,
+                        f"Eliminó asignación #{aid} (masivo)",
+                        "assignment", aid, ip_address=_ip(request))
+
+    await session.commit()
+    return {"deleted": deleted}

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from app.core.rbac import admin_only
+from app.core.rbac import admin_only, admin_profesor
 from app.models import User
 from app.schemas.vm_rule import PortRangeConfig
 from app.services.iptables_service import (
@@ -20,7 +20,7 @@ class RangeRequest(BaseModel):
 
 
 @router.get("")
-async def get_rules(    user: User = Depends(admin_only)):
+async def get_rules(    user: User = Depends(admin_profesor)):
     result = svc_list()
     return result
 

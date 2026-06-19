@@ -16,6 +16,9 @@ class User(BaseModel):
 
     role = relationship("Role", back_populates="users")
     audit_logs = relationship("AuditLog", back_populates="user")
+    virtual_machines = relationship("VirtualMachine", back_populates="owner")
+    created_students = relationship("Student", back_populates="creator")
+    courses = relationship("Course", back_populates="profesor")
     created_assignments = relationship(
         "VMAssignment",
         foreign_keys="[VMAssignment.assigned_by]",

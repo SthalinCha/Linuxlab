@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, DateTime, text, func
+from sqlalchemy import Column, Integer, DateTime, func
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -12,7 +12,7 @@ class BaseModel(Base):
 
     created_at = Column(
         DateTime,
-        server_default=text("CURRENT_TIMESTAMP"),
+        server_default=func.now(),
         nullable=False
     )
 

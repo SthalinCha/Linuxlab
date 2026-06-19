@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Boolean, CheckConstraint
+from sqlalchemy import Column, String, DateTime, Boolean, Integer, ForeignKey, CheckConstraint
 from sqlalchemy.orm import relationship
 
 from .base import BaseModel
@@ -13,7 +13,9 @@ class Period(BaseModel):
     end_date = Column(DateTime, nullable=False)
     is_active = Column(Boolean, default=False, index=True)
     closed_at = Column(DateTime, nullable=True)
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=True, index=True)
 
+    course = relationship("Course", back_populates="periods")
     assignments = relationship("VMAssignment", back_populates="period")
 
     __table_args__ = (
