@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
+import { useAuth } from '../hooks/useAuth'
 import ChangePasswordModal from './ChangePasswordModal'
-import CreateAdminModal from './CreateAdminModal'
 
-const navItems = [
+const ALL_NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/vms', label: 'Instancias' },
   { to: '/assignments', label: 'Asignaciones' },
@@ -12,22 +12,31 @@ const navItems = [
   { to: '/students', label: 'Estudiantes' },
   { to: '/audit', label: 'Auditoría' },
   { to: '/host', label: 'Host' },
+  { to: '/users', label: 'Usuarios' },
 ]
+
+const PROFESOR_NAV = ['/dashboard', '/vms', '/assignments', '/students']
 
 export default function Layout() {
   const navigate = useNavigate()
+  const { user, isAdmin, logout: authLogout } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [showCreateAdmin, setShowCreateAdmin] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
   const [hasLibvirt, setHasLibvirt] = useState(true)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    if (!isAdmin) return
     api.host.get().then(h => setHasLibvirt(h.has_libvirt)).catch(() => {})
-  }, [])
+  }, [isAdmin])
 
-  const username = localStorage.getItem('admin_username') || 'Admin'
+  const navItems = useMemo(() => {
+    if (isAdmin) return ALL_NAV_ITEMS
+    return ALL_NAV_ITEMS.filter(item => PROFESOR_NAV.includes(item.to))
+  }, [isAdmin])
+
+  const username = user?.username || 'Admin'
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -44,9 +53,7 @@ export default function Layout() {
   }, [mobileMenuOpen])
 
   const handleLogout = () => {
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('refresh_token')
-    localStorage.removeItem('admin_username')
+    authLogout()
     navigate('/login')
   }
 
@@ -111,15 +118,6 @@ export default function Layout() {
 
             {dropdownOpen && (
               <div className="absolute right-0 mt-1 w-52 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50">
-                <button
-                  onClick={() => { setDropdownOpen(false); setShowCreateAdmin(true) }}
-                  className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                  </svg>
-                  Agregar Admin
-                </button>
                 <button
                   onClick={() => { setDropdownOpen(false); setShowChangePassword(true) }}
                   className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
@@ -189,15 +187,6 @@ export default function Layout() {
 
             <div className="border-t border-slate-700 p-3 space-y-1">
               <button
-                onClick={() => { setMobileMenuOpen(false); setShowCreateAdmin(true) }}
-                className="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white rounded transition-colors flex items-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                </svg>
-                Agregar Admin
-              </button>
-              <button
                 onClick={() => { setMobileMenuOpen(false); setShowChangePassword(true) }}
                 className="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white rounded transition-colors flex items-center gap-2"
               >
@@ -229,7 +218,6 @@ export default function Layout() {
       </main>
 
       <ChangePasswordModal open={showChangePassword} onClose={() => setShowChangePassword(false)} />
-      <CreateAdminModal open={showCreateAdmin} onClose={() => setShowCreateAdmin(false)} />
     </div>
   )
 }

@@ -1,0 +1,1 @@
+ALTER TABLE audit_logs MODIFY COLUMN user_id INT NULL;

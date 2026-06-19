@@ -5,6 +5,7 @@ import type {
   HostInfo, AdminCreateRequest, AdminCreateResponse,
   PeriodInfo, AddPortRequest, Period, PortRangeConfig, PortRangeResult,
   BulkPortsRequest,
+  UserResponse, UserCreate, UserUpdate,
 } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1'
@@ -57,7 +58,8 @@ async function request<T>(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(err.detail || 'Error de red')
+    const detail = Array.isArray(err.detail) ? err.detail.map((e: any) => e.msg).join('; ') : err.detail
+    throw new Error(detail || 'Error de red')
   }
 
   return res.json()
@@ -275,5 +277,19 @@ export const api = {
       params.set('offset', String(offset))
       return request<{ items: AuditLog[]; total: number; limit: number; offset: number }>(`/audit?${params}`, undefined, opts?.signal)
     },
+  },
+  users: {
+    list: (opts?: SignalOption) =>
+      request<UserResponse[]>('/users', undefined, opts?.signal),
+    me: (opts?: SignalOption) =>
+      request<UserResponse>('/users/me', undefined, opts?.signal),
+    get: (id: number, opts?: SignalOption) =>
+      request<UserResponse>(`/users/${id}`, undefined, opts?.signal),
+    create: (data: UserCreate, opts?: SignalOption) =>
+      request<UserResponse>('/users', { method: 'POST', body: JSON.stringify(data) }, opts?.signal),
+    update: (id: number, data: UserUpdate, opts?: SignalOption) =>
+      request<UserResponse>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }, opts?.signal),
+    delete: (id: number, opts?: SignalOption) =>
+      request<{ message: string }>(`/users/${id}`, { method: 'DELETE' }, opts?.signal),
   },
 }

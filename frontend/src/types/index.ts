@@ -160,6 +160,32 @@ export interface TokenResponse {
   access_token: string
   refresh_token: string
   token_type: string
+  role_name: string
+}
+
+export interface UserResponse {
+  id: number
+  username: string
+  full_name: string
+  email: string
+  role_id: number
+  role_name: string
+  created_at: string
+  updated_at: string
+}
+
+export interface UserCreate {
+  username: string
+  password: string
+  full_name: string
+  email?: string
+  role_name: string
+}
+
+export interface UserUpdate {
+  full_name?: string
+  email?: string
+  role_name?: string
 }
 
 export interface Period {

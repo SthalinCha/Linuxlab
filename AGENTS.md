@@ -34,7 +34,7 @@ Migrate frontend from legacy React patterns to modern architecture (shared hooks
   - Rebuilt Docker `linuxlab-backend` container — all backend services run in Docker, host-side file edits don't apply until rebuild
 
 ### In Progress
-- (none)
+- **Phase 6 (RBAC):** Sistema de roles admin/profesor implementado en backend (`RoleChecker`, CRUD usuarios, protección de endpoints) y frontend (`AuthContext`, nav filtrado, rutas protegidas, página Users). Pendiente: backend corre en Docker, necesita rebuild del container para aplicar cambios. Falta definir permisos de profesor en VMs/Assignments.
 
 ### Blocked
 - (none)

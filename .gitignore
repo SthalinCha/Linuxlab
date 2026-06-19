@@ -15,3 +15,7 @@ frontend/.vite/
 *.swp
 *.swo
 /tmp/
+.opencode/
+.vite/
+frontend/tsconfig.tsbuildinfo
+linuxlab.db

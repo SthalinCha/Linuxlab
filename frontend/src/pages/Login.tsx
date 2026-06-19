@@ -1,9 +1,10 @@
 import { useState, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../services/api'
+import { useAuth } from '../hooks/useAuth'
 
 export default function Login() {
   const navigate = useNavigate()
+  const { login: authLogin } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -14,10 +15,7 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      const res = await api.auth.login(username, password)
-      localStorage.setItem('access_token', res.access_token)
-      localStorage.setItem('refresh_token', res.refresh_token)
-      localStorage.setItem('admin_username', username)
+      await authLogin(username, password)
       navigate('/dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al iniciar sesión')

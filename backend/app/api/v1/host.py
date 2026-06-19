@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import get_current_user
+from app.core.rbac import admin_only
 from app.models import User, VirtualMachine
 from app.database.session import get_session
 from app.services.host_service import get_host_metrics_async as get_host_metrics
@@ -38,7 +39,7 @@ def _read_os_release() -> str:
 
 @router.get("")
 async def get_host_info(
-    user: User = Depends(get_current_user),
+    user: User = Depends(admin_only),
     session: AsyncSession = Depends(get_session),
 ):
     metrics = await get_host_metrics()
@@ -111,7 +112,7 @@ async def get_host_info(
 
 
 @router.post("/service/{service_name}/restart")
-async def restart_service(service_name: str, user: User = Depends(get_current_user)):
+async def restart_service(service_name: str, user: User = Depends(admin_only)):
     allowed = ["libvirtd", "qemu-kvm", "nginx", "cockpit", "ssh"]
     if service_name not in allowed:
         raise HTTPException(status_code=422, detail=f"Servicio no permitido: {service_name}")

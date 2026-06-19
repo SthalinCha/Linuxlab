@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_session
 from app.models import User, Role
 from app.core.security import verify_password, create_access_token, create_refresh_token, decode_token, get_current_user, hash_password
 from app.core.audit import log_login_event
 from app.core.rate_limiter import login_limiter
+from app.core.rbac import admin_only
 from app.schemas import UserLogin, ChangePasswordRequest
 
 router = APIRouter()
@@ -16,6 +18,7 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    role_name: str = ""
 
 
 class RefreshRequest(BaseModel):
@@ -37,7 +40,9 @@ async def login(
         )
 
     result = await session.execute(
-        select(User).where(User.username == body.username, User.deleted_at.is_(None))
+        select(User)
+        .options(selectinload(User.role))
+        .where(User.username == body.username, User.deleted_at.is_(None))
     )
     user = result.scalar_one_or_none()
     if not user or not verify_password(body.password, user.password_hash):
@@ -45,10 +50,11 @@ async def login(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
 
     await login_limiter.reset(ip)
-    access_token = create_access_token({"sub": user.username})
-    refresh_token = create_refresh_token({"sub": user.username})
+    token_data = {"sub": user.username, "role": user.role.name}
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
     await log_login_event(session, body.username, success=True, ip_address=ip)
-    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token, role_name=user.role.name)
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -60,13 +66,17 @@ async def refresh(body: RefreshRequest, session: AsyncSession = Depends(get_sess
     if not username:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
     result = await session.execute(
-        select(User).where(User.username == username, User.deleted_at.is_(None))
+        select(User)
+        .options(selectinload(User.role))
+        .where(User.username == username, User.deleted_at.is_(None))
     )
-    if not result.scalar_one_or_none():
+    user = result.scalar_one_or_none()
+    if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
-    access_token = create_access_token({"sub": username})
-    new_refresh = create_refresh_token({"sub": username})
-    return TokenResponse(access_token=access_token, refresh_token=new_refresh)
+    token_data = {"sub": username, "role": user.role.name}
+    access_token = create_access_token(token_data)
+    new_refresh = create_refresh_token(token_data)
+    return TokenResponse(access_token=access_token, refresh_token=new_refresh, role_name=user.role.name)
 
 
 class CreateUserRequest(BaseModel):
@@ -86,7 +96,7 @@ class CreateUserRequest(BaseModel):
 async def register_user(
     body: CreateUserRequest,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    user: User = Depends(admin_only),
 ):
     existing = await session.execute(select(User).where(User.username == body.username))
     if existing.scalar_one_or_none():

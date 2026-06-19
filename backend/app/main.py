@@ -10,7 +10,7 @@ from sqlalchemy import text, select
 from app.core.config import CORS_ORIGINS, SECRET_KEY
 from app.models import Base
 from app.database.session import engine, async_session
-from app.api.v1 import auth, dashboard, vms, students, assignments, periods, audit, ws, iptables, host
+from app.api.v1 import auth, dashboard, vms, students, assignments, periods, audit, ws, iptables, host, users
 from app.core.security import hash_password
 from app.services.metrics_collector import collector
 from app.core.libvirt.connection import HAVE_LIBVIRT
@@ -48,6 +48,7 @@ app.include_router(audit.router, prefix="/api/v1/audit", tags=["Audit"])
 app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
 app.include_router(host.router, prefix="/api/v1/host", tags=["Host"])
 app.include_router(iptables.router, prefix="/api/v1/host/iptables", tags=["Red"])
+app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 
 
 @app.exception_handler(Exception)
