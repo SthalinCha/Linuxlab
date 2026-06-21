@@ -7,6 +7,7 @@ from app.models import User, VirtualMachine, AuditLog
 from app.database.session import get_session
 from app.services.host_service import get_host_metrics_async as get_host_metrics
 from app.services.metrics_collector import collector
+from app.services.config_service import get_cached_int
 from app.schemas.dashboard import (
     DashboardResponse,
     DashboardHistoryResponse,
@@ -26,11 +27,14 @@ router = APIRouter()
 
 def _compute_alerts_count(host: dict, crashed_vm_count: int) -> int:
     count = 0
-    if host["cpu_percent"] > 75:
+    cpu_warn = get_cached_int("alert_cpu_warn", 75)
+    ram_warn = get_cached_int("alert_ram_warn", 75)
+    disk_warn = get_cached_int("alert_disk_warn", 80)
+    if host["cpu_percent"] > cpu_warn:
         count += 1
-    if host["ram_percent"] > 75:
+    if host["ram_percent"] > ram_warn:
         count += 1
-    if host["disk_percent"] > 80:
+    if host["disk_percent"] > disk_warn:
         count += 1
     count += crashed_vm_count
     return count
@@ -73,16 +77,16 @@ async def get_dashboard(
 
     health_factors = []
 
-    cpu_score = max(0, 100 - host["cpu_percent"])
+    cpu_score = max(0, 100 - float(host["cpu_percent"]))
     health_factors.append(cpu_score)
 
-    ram_score = max(0, 100 - host["ram_percent"])
+    ram_score = max(0, 100 - float(host["ram_percent"]))
     health_factors.append(ram_score)
 
-    disk_score = max(0, 100 - host["disk_percent"])
+    disk_score = max(0, 100 - float(host["disk_percent"]))
     health_factors.append(disk_score)
 
-    vm_ratio = running_vms / max(total_vms, 1)
+    vm_ratio = float(running_vms) / max(float(total_vms), 1)
     vm_score = vm_ratio * 100
     health_factors.append(vm_score)
 
@@ -128,17 +132,23 @@ async def get_dashboard_alerts(
     host = await get_host_metrics()
     alerts = []
 
-    if host["cpu_percent"] > 90:
+    cpu_crit = get_cached_int("alert_cpu_crit", 90)
+    cpu_warn = get_cached_int("alert_cpu_warn", 75)
+    ram_crit = get_cached_int("alert_ram_crit", 90)
+    ram_warn = get_cached_int("alert_ram_warn", 75)
+    disk_crit = get_cached_int("alert_disk_crit", 90)
+
+    if host["cpu_percent"] > cpu_crit:
         alerts.append({"level": "critical", "message": f"CPU al {host['cpu_percent']}%", "resource": "Host"})
-    elif host["cpu_percent"] > 75:
+    elif host["cpu_percent"] > cpu_warn:
         alerts.append({"level": "warning", "message": f"CPU al {host['cpu_percent']}%", "resource": "Host"})
 
-    if host["ram_percent"] > 90:
+    if host["ram_percent"] > ram_crit:
         alerts.append({"level": "critical", "message": f"RAM al {host['ram_percent']}%", "resource": "Host"})
-    elif host["ram_percent"] > 75:
+    elif host["ram_percent"] > ram_warn:
         alerts.append({"level": "warning", "message": f"RAM al {host['ram_percent']}%", "resource": "Host"})
 
-    if host["disk_percent"] > 80:
+    if host["disk_percent"] > disk_crit:
         alerts.append({"level": "critical", "message": f"Almacenamiento al {host['disk_percent']}%", "resource": "Storage"})
 
     vm_query = [VirtualMachine.current_state.in_(["crashed", "unknown"]), VirtualMachine.deleted_at.is_(None)]
@@ -207,15 +217,16 @@ async def get_capacity(user: User = Depends(admin_profesor)):
     used_disk_gb = host["disk_used_gb"]
     free_disk_gb = round(total_disk_gb - used_disk_gb, 1)
 
-    avg_vm_ram = 4
-    avg_vm_disk = 20
+    avg_vm_ram = get_cached_int("avg_vm_ram_gb", 4)
+    avg_vm_disk = get_cached_int("avg_vm_disk_gb", 20)
+    overcommit_ratio = get_cached_int("vcpu_overcommit_ratio", 4)
 
     vms_by_ram = int(free_ram_gb / avg_vm_ram) if avg_vm_ram > 0 else 0
     vms_by_disk = int(free_disk_gb / avg_vm_disk) if avg_vm_disk > 0 else 0
     estimated_vms = min(vms_by_ram, vms_by_disk)
 
     return {
-        "free_vcpus": max(0, host.get("cpu_count", 0) * 4 - host.get("total_vms", 0)),
+        "free_vcpus": max(0, host.get("cpu_count", 0) * overcommit_ratio - host.get("total_vms", 0)),
         "free_ram_gb": free_ram_gb,
         "free_disk_gb": free_disk_gb,
         "estimated_vms": max(0, estimated_vms),

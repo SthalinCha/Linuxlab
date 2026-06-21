@@ -1,9 +1,6 @@
 import subprocess
 from app.core.config import VM_SUBNET, get_host_ip
-from app.services.vm_service import DEFAULT_PORT_MAP
-
-# Alias para compatibilidad interna
-PORT_MAP = DEFAULT_PORT_MAP
+from app.services.config_service import get_port_map
 
 
 def _sudo(cmd: list[str]) -> subprocess.CompletedProcess:
@@ -41,21 +38,24 @@ def _del_rule(table: str, chain: str, args: list[str]) -> tuple[bool, str]:
 def _vm_rules(num: int) -> list[tuple[list[str], str]]:
     host_ip = get_host_ip()
     dest = f"{VM_SUBNET}.{num}"
+    port_map = get_port_map()
     rules = []
-    for name, base, vm_port in PORT_MAP:
+    for name, base, vm_port in port_map:
         host_port = base + num
         rules.append(
             (["-p", "tcp", "-d", host_ip, "--dport", str(host_port), "-j", "DNAT", "--to-destination", f"{dest}:{vm_port}"],
              f"{name} vhost-{num} (:{host_port} → {dest}:{vm_port})")
         )
     # Reglas locales para ADMIN (Cockpit)
-    admin_port = PORT_MAP[3][1] + num
+    cockpit_entry = next(((n, b, v) for n, b, v in port_map if n == "Cockpit"), ("Cockpit", 9000, 9090))
+    _, cockpit_base, cockpit_vm_port = cockpit_entry
+    admin_port = cockpit_base + num
     rules.append(
-        (["-p", "tcp", "-d", "127.0.0.1", "--dport", str(admin_port), "-j", "DNAT", "--to-destination", f"{dest}:9090"],
+        (["-p", "tcp", "-d", "127.0.0.1", "--dport", str(admin_port), "-j", "DNAT", "--to-destination", f"{dest}:{cockpit_vm_port}"],
          f"ADMIN vhost-{num} localhost")
     )
     rules.append(
-        (["-p", "tcp", "-d", host_ip, "--dport", str(admin_port), "-j", "DNAT", "--to-destination", f"{dest}:9090"],
+        (["-p", "tcp", "-d", host_ip, "--dport", str(admin_port), "-j", "DNAT", "--to-destination", f"{dest}:{cockpit_vm_port}"],
          f"ADMIN vhost-{num} local IP")
     )
     return rules

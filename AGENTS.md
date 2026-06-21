@@ -41,12 +41,7 @@ Multi-profesor RBAC: cada profesor ve solo sus VMs, estudiantes y asignaciones. 
 
 - **Fase 3 (Dead artifact cleanup):** Dropped orphan `vm_rules` DB table (no model, no endpoints, 0 rows). Deleted 7 dead schema files (`role`, `period`, `vm_template`, `vm_assignment`, `vm_state_history`, `audit_log`, `system_parameter`), stale `__pycache__/vm_rule.cpython-314.pyc`, and cleaned `schemas/__init__.py`. Frontend: removed `CreateAdminModal.tsx`, `useStudents.ts`, 10 dead API methods (`auth.register`, `ports.add`, `vms.recreateRange`, `assignments.autoAssign`, `assignments.batchCreate`, `students.create`, `students.update`, `students.history`, `users.me`, `users.get`). Removed unused types `AddPortRequest`, `AdminCreateRequest`, `AdminCreateResponse`. Migration `009_drop_vm_rules.sql`.
 
-### In Progress
-- (none)
-
-### Blocked
-- Numeración de VMs legacy: VMs existentes pueden tener owner NULL, no bloquea pero hay que asignar manualmente.
-- Integración completa de course selector en Assignments y Students (actualmente solo filtran por course_id via query param pero no hay UI selector).
+- **Integración `system_parameters`:** Creado `config_service.py` con `get_port_map()`, `get_cached_int()`, `get_cached_str()`, `load_config()`. 23 parámetros definidos (port_map, umbrales alerta, rate_limit, metrics, defaults clone, bridge/network). `DEFAULT_PORT_MAP` eliminado de `vm_service.py` — ahora lee de DB via `get_port_map()`. Dashboard thresholds (`_compute_alerts_count`, alerts endpoint, capacity estimation) reemplazados por `get_cached_int()`. Rate limiter dinámico via DB. `clone_service.py` lee `default_template` de DB. `assignment_service.py` usa `teacher_vm_name` de DB. `vms.py` usa `max_vm_recreations` de DB.
 
 ## Key Decisions
 - Numeración de VMs global (backend es única fuente de verdad, `GET /vms/next-number`), no por profesor.
@@ -56,10 +51,12 @@ Multi-profesor RBAC: cada profesor ve solo sus VMs, estudiantes y asignaciones. 
 - `created_by=NULL` en students legacy se trata como no-propietario (profesor recibe 403).
 - Course model: soft-delete lógico, course_id en Period/Student nullable para backward compat.
 - Backend en Docker; cambios requieren rebuild.
+- `system_parameters` es única fuente de verdad para configuración runtime (port_map, umbrales, rate_limit, defaults). Caché TTL 60s. `load_config()` seed + preload en startup.
 
 ## Next Steps
-1. Course selector UI en Assignments y Students pages.
-2. Frontend visual indicators de ownership (opcional).
+1. Rebuild Docker + verify backend starts.
+2. Insert/update `system_parameters` rows via SQL if defaults need overriding.
+3. Course selector UI en Assignments y Students pages (frontend).
 
 ## Critical Context
 - Build: `tsc -b && vite build` — ambos OK. Tests: `vitest run` — 4/4.

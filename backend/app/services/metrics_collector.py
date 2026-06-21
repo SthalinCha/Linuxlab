@@ -5,6 +5,7 @@ import psutil
 from collections import deque
 from threading import Lock
 from sqlalchemy import select, text
+from datetime import datetime, timedelta
 from app.core.libvirt.connection import get_connection, HAVE_LIBVIRT
 from app.database.session import async_session
 from app.models.host_metric import HostMetric
@@ -39,8 +40,10 @@ class MetricsCollector:
                     ram_percent=round(ram, 1),
                     disk_percent=round(disk, 1),
                 ))
+                cutoff = datetime.utcnow() - timedelta(hours=48)
                 await session.execute(
-                    text("DELETE FROM host_metrics WHERE timestamp < datetime('now', '-48 hours')")
+                    text("DELETE FROM host_metrics WHERE timestamp < :cutoff"),
+                    {"cutoff": cutoff},
                 )
                 await session.commit()
         except Exception as e:

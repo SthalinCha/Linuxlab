@@ -1,10 +1,9 @@
 import logging
 from app.core.libvirt.connection import get_connection, HAVE_LIBVIRT
+from app.services.config_service import get_cached_str
 
 logger = logging.getLogger(__name__)
 
-TEMPLATE_NAME = "ubuntu-server-main"
-TEMPLATE_VOL_NAME = f"{TEMPLATE_NAME}.qcow2"
 POOL_NAME = "images"
 BRIDGE = "virbr0"
 NETWORK = "default"
@@ -74,10 +73,12 @@ class CloneService:
         except libvirt.libvirtError as e:
             return {"success": False, "error": f"Error accediendo al storage pool: {e}"}
 
+        template_name = source_name or get_cached_str("default_template", "ubuntu-server-main")
+        template_vol_name = f"{template_name}.qcow2"
         try:
-            template_vol = pool.storageVolLookupByName(TEMPLATE_VOL_NAME)
+            template_vol = pool.storageVolLookupByName(template_vol_name)
         except libvirt.libvirtError as e:
-            return {"success": False, "error": f"Volumen plantilla '{TEMPLATE_VOL_NAME}' no encontrado: {e}"}
+            return {"success": False, "error": f"Volumen plantilla '{template_vol_name}' no encontrado: {e}"}
         template_path = template_vol.path()
         new_vol_name = f"{new_name}.qcow2"
 
@@ -119,7 +120,7 @@ class CloneService:
             new_vol.delete(0)
             return {"success": False, "error": f"Error definiendo dominio: {e}"}
 
-    def recreate_vm(self, vm_name: str, template_name: str = TEMPLATE_NAME,
+    def recreate_vm(self, vm_name: str, template_name: str = "",
                      mac_address: str | None = None,
                      memory_mb: int = 4096, vcpus: int = 1) -> dict:
         if not HAVE_LIBVIRT:

@@ -5,6 +5,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import VMAssignment, Student, VirtualMachine, Period, AuditLog, User
 from app.core.audit import log_event
+from app.services.config_service import get_cached_str
 
 
 async def _validate_assignment(
@@ -193,7 +194,7 @@ async def _find_available_vms(
     query = select(VirtualMachine).where(
         VirtualMachine.deleted_at.is_(None),
         VirtualMachine.template_id.is_(None),
-        VirtualMachine.name != "vhost-10",
+        VirtualMachine.name != get_cached_str("teacher_vm_name", "vhost-10"),
         ~VirtualMachine.id.in_(
             select(VMAssignment.vm_id).where(
                 VMAssignment.period_id == period_id,

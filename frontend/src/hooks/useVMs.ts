@@ -29,11 +29,9 @@ function toVMDisplay(vm: VirtualMachine, cpuCount: number, ramTotalGb: number): 
 export function useVMs(statusFilter: string) {
   const [allVms, setAllVms] = useState<VMDisplay[]>([])
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
-  const [templates, setTemplates] = useState<VirtualMachine[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
-  const templatesLoaded = useRef(false)
 
   const load = useCallback(async () => {
     abortRef.current?.abort()
@@ -67,15 +65,5 @@ export function useVMs(statusFilter: string) {
 
   useEffect(() => { load(); return () => abortRef.current?.abort() }, [load])
 
-  useEffect(() => {
-    if (templatesLoaded.current) return
-    templatesLoaded.current = true
-    const controller = new AbortController()
-    api.vms.listTemplates({ signal: controller.signal }).then((data) => {
-      if (Array.isArray(data)) setTemplates(data); else console.warn('useVMs: templates no es un array', data)
-    }).catch(() => {})
-    return () => controller.abort()
-  }, [])
-
-  return { allVms, dashboardData, templates, loading, error, refetch: load }
+  return { allVms, dashboardData, loading, error, refetch: load }
 }

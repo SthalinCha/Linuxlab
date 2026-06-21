@@ -19,3 +19,4 @@ frontend/.vite/
 .vite/
 frontend/tsconfig.tsbuildinfo
 linuxlab.db
+template.md

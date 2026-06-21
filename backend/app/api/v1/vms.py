@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_session
-from app.models import VirtualMachine, VMAssignment
+from app.models import VirtualMachine, VMAssignment, VMTemplate
 from app.core.security import get_current_user
 from app.models import User
 from app.core.libvirt.vm_manager import VMManager
@@ -14,6 +14,7 @@ from app.services.clone_service import CloneService, mac_from_num
 from app.services.vm_service import build_ports
 from app.services.iptables_service import forward_port, unforward_port, forward_range, unforward_range
 from app.core.config import VM_SUBNET
+from app.services.config_service import get_cached_int
 from app.core.audit import log_event
 from app.services.vm_list_service import list_vms as list_vms_service
 from app.services.vm_bulk_service import delete_vm_by_id, bulk_delete_vms, bulk_action_vms
@@ -25,6 +26,7 @@ from app.schemas.virtual_machine import (
     BulkDeleteRequest, AddPortRequest, BulkPortsRequest, BulkActionRequest, RecreateRangeRequest,
     NextNumberResponse,
 )
+from app.schemas.vm_template import VMTemplateResponse
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +200,16 @@ async def get_next_vm_number(
 ):
     next_number = await _get_next_vm_number(session)
     return NextNumberResponse(next_number=next_number)
+
+
+@router.get("/templates")
+async def list_vm_templates(
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(VMTemplate).order_by(VMTemplate.name)
+    )
+    return {"items": [VMTemplateResponse.model_validate(t) for t in result.scalars().all()]}
 
 
 @router.get("/{vm_id}", response_model=VirtualMachineResponse)
@@ -384,8 +396,9 @@ async def recreate_vm(
         )
     )
     assignment = assignment_active.scalar_one_or_none()
-    if assignment and assignment.recreation_count >= 3:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Límite de 3 recreaciones alcanzado")
+    max_recreate = get_cached_int("max_vm_recreations", 3)
+    if assignment and assignment.recreation_count >= max_recreate:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Límite de {max_recreate} recreaciones alcanzado")
 
     r = await asyncio.to_thread(
         clone_service.recreate_vm,

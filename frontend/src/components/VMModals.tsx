@@ -1,4 +1,4 @@
-import type { VirtualMachine } from '../types'
+import type { VMTemplateInfo } from '../types'
 import VmModal from './VmModal'
 
 interface BulkAction {
@@ -14,7 +14,7 @@ interface Props {
   labStart: number
   labPrefix: string
   creatingLab: boolean
-  templates: VirtualMachine[]
+  templates: VMTemplateInfo[]
   confirmDelete: number | null
   confirmDestroy: number | null
   confirmRecreate: number | null
@@ -80,8 +80,7 @@ export default function VMModals({
                   onChange={(e) => onLabTemplateChange(e.target.value)}
                   className="border border-slate-300 rounded-lg px-3 py-2 text-sm w-full"
                 >
-                  <option value="ubuntu-server-main">ubuntu-server-main</option>
-                  {Array.isArray(templates) && templates.filter(t => t.is_template).map(t => (
+                  {Array.isArray(templates) && templates.map(t => (
                     <option key={t.id} value={t.name}>{t.name}</option>
                   ))}
                 </select>

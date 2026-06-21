@@ -6,6 +6,7 @@ import type {
   PeriodInfo, AddPortRequest, Period, PortRangeConfig, PortRangeResult,
   BulkPortsRequest,
   UserResponse, UserCreate, UserUpdate,
+  VMTemplateInfo,
 } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1'
@@ -117,10 +118,6 @@ export const api = {
       const res = await request<{ items: VirtualMachine[] }>('/vms/light', undefined, opts?.signal)
       return res.items
     },
-    listTemplates: async (opts?: SignalOption) => {
-      const res = await request<{ items: VirtualMachine[] }>('/vms?include_templates=true', undefined, opts?.signal)
-      return res.items
-    },
     get: (id: number, opts?: SignalOption) => request<VirtualMachine>(`/vms/${id}`, undefined, opts?.signal),
     start: (id: number, opts?: SignalOption) =>
       request<{ message: string }>(`/vms/${id}/start`, { method: 'POST' }, opts?.signal),
@@ -149,7 +146,9 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }, opts?.signal),
-    createLab: (data: { count: number; start_number: number; prefix: string }, opts?: SignalOption) =>
+    templates: (opts?: SignalOption) =>
+      request<{ items: VMTemplateInfo[] }>('/vms/templates', undefined, opts?.signal),
+    createLab: (data: { count: number; start_number: number; prefix: string; template_name?: string }, opts?: SignalOption) =>
       request<Array<{ number: number; name: string; status: string; reason?: string }>>('/vms/create-lab', {
         method: 'POST',
         body: JSON.stringify(data),

@@ -33,7 +33,6 @@ export interface VirtualMachine {
   disk_gb: number
   current_state: VMState
   ports?: Port[]
-  is_template?: boolean
   ram_used_mb?: number
   ram_percent?: number
   live_vcpus?: number
@@ -246,6 +245,15 @@ export interface PortRangeResult {
   success: boolean
   total: number
   results: PortRangeResultItem[]
+}
+
+export interface VMTemplateInfo {
+  id: number
+  name: string
+  description?: string
+  vcpus: number
+  ram_mb: number
+  disk_gb: number
 }
 
 export interface AdminCreateRequest {

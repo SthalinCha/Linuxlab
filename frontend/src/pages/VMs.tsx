@@ -9,6 +9,7 @@ import VMStats from '../components/VMStats'
 import VMToolbar from '../components/VMToolbar'
 import VMTable from '../components/VMTable'
 import VMModals from '../components/VMModals'
+import type { VMTemplateInfo } from '../types'
 
 export default function VMs() {
   const { addToast, removeToast } = useToast()
@@ -19,7 +20,7 @@ export default function VMs() {
   const [openMenu, setOpenMenu] = useState<number | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
 
-  const { allVms, dashboardData, templates, loading, error, refetch: loadVms } = useVMs(statusFilter)
+  const { allVms, dashboardData, loading, error, refetch: loadVms } = useVMs(statusFilter)
 
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
   const [confirmDestroy, setConfirmDestroy] = useState<number | null>(null)
@@ -31,12 +32,19 @@ export default function VMs() {
   const [confirmAddVm, setConfirmAddVm] = useState<number | null>(null)
   const [creatingVm, setCreatingVm] = useState(false)
 
+  const [templateOptions, setTemplateOptions] = useState<VMTemplateInfo[]>([])
   const [showLabModal, setShowLabModal] = useState(false)
   const [labTemplate, setLabTemplate] = useState('ubuntu-server-main')
   const [labCount, setLabCount] = useState(10)
   const [labStart, setLabStart] = useState(10)
   const [labPrefix] = useState('vhost')
   const [creatingLab, setCreatingLab] = useState(false)
+
+  useEffect(() => {
+    api.vms.templates().then((res) => {
+      if (res?.items) setTemplateOptions(res.items)
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -147,7 +155,7 @@ export default function VMs() {
     setCreatingVm(true)
     const tid = addToast('loading', `Creando vhost-${confirmAddVm}...`)
     try {
-      await api.vms.clone({ number: confirmAddVm })
+      await api.vms.clone({ number: confirmAddVm, template_name: labTemplate })
       setConfirmAddVm(null)
       removeToast(tid)
       addToast('success', `vhost-${confirmAddVm} creada`)
@@ -195,7 +203,7 @@ export default function VMs() {
     setCreatingLab(true)
     const tid = addToast('loading', `Creando laboratorio: ${labCount} VMs...`)
     try {
-      const data = await api.vms.createLab({ count: labCount, start_number: labStart, prefix: labPrefix })
+      const data = await api.vms.createLab({ count: labCount, start_number: labStart, prefix: labPrefix, template_name: labTemplate })
       const created = data.filter(r => r.status === 'created').length
       setShowLabModal(false)
       removeToast(tid)
@@ -297,7 +305,7 @@ export default function VMs() {
         labStart={labStart}
         labPrefix={labPrefix}
         creatingLab={creatingLab}
-        templates={templates}
+        templates={templateOptions}
         confirmDelete={confirmDelete}
         confirmDestroy={confirmDestroy}
         confirmRecreate={confirmRecreate}

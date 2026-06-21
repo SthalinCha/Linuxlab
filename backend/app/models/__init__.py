@@ -10,6 +10,7 @@ from .vm_assignment import VMAssignment
 from .vm_state_history import VMStateHistory
 from .audit_log import AuditLog
 from .host_metric import HostMetric
+from .system_parameter import SystemParameter
 __all__ = [
     "Base",
     "BaseModel",
@@ -24,4 +25,5 @@ __all__ = [
     "VMStateHistory",
     "AuditLog",
     "HostMetric",
+    "SystemParameter",
 ]

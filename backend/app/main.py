@@ -13,6 +13,7 @@ from app.database.session import engine, async_session
 from app.api.v1 import auth, dashboard, vms, students, assignments, periods, audit, ws, iptables, host, users, courses
 from app.core.security import hash_password
 from app.services.metrics_collector import collector
+from app.services.config_service import get_cached_int
 from app.core.libvirt.connection import HAVE_LIBVIRT
 
 logging.basicConfig(
@@ -112,6 +113,19 @@ async def startup():
             ))
             await session.commit()
 
+        almalinux_template = await session.execute(
+            select(VMTemplate).where(VMTemplate.name == "almalinux-vhost")
+        )
+        if not almalinux_template.scalar_one_or_none():
+            session.add(VMTemplate(
+                name="almalinux-vhost",
+                description="Plantilla de AlmaLinux (sin GUI)",
+                vcpus=1,
+                ram_mb=2048,
+                disk_gb=10,
+            ))
+            await session.commit()
+
         existing_students = await session.execute(select(Student).limit(1))
         if not existing_students.scalar_one_or_none():
             names = ["Juan Pérez", "Ana López", "Carlos Ruiz", "María García", "Pedro Martínez"]
@@ -128,8 +142,12 @@ async def startup():
         if synced:
             logger.info("Sincronizadas %s VMs desde libvirt", synced)
 
+    from app.services.config_service import load_config
+    await load_config()
+
     global _background_task
-    _background_task = asyncio.create_task(collector.start_background_collection(interval=300))
+    metrics_interval = get_cached_int("metrics_interval", 300)
+    _background_task = asyncio.create_task(collector.start_background_collection(interval=metrics_interval))
     logger.info("Inicio completado")
 
 
