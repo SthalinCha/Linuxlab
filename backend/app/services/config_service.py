@@ -1,9 +1,10 @@
 import json
+import os
 import time
 from typing import Any
 
 _cache: dict[str, tuple[Any, float]] = {}
-_cache_ttl: float = 60.0
+_cache_ttl: float = float(os.getenv("CONFIG_CACHE_TTL", "60"))
 
 PORT_MAP_DEFAULTS = [
     ("SSH", 2200, 22),

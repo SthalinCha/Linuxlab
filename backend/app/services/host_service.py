@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import time
 import psutil
 from app.core.libvirt.connection import get_connection
@@ -8,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 _metrics_cache: dict | None = None
 _metrics_cache_time: float = 0
-METRICS_CACHE_TTL = 10  # seconds
+METRICS_CACHE_TTL = int(os.getenv("METRICS_CACHE_TTL", "10"))
 
 
 def get_host_metrics() -> dict:

@@ -20,3 +20,9 @@ frontend/.vite/
 frontend/tsconfig.tsbuildinfo
 linuxlab.db
 template.md
+preparacion_ambiente.md
+pasos.md
+templates.md
+setup.sh
+Makefile
+linuxlab.service

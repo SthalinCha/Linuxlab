@@ -1,13 +1,14 @@
 import asyncio
 import json
 import logging
+import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import HTTPException
 from sqlalchemy import text, select
-from app.core.config import CORS_ORIGINS, SECRET_KEY
+from app.core.config import CORS_ORIGINS, SECRET_KEY, EMAIL_DOMAIN
 from app.models import Base
 from app.database.session import engine, async_session
 from app.api.v1 import auth, dashboard, vms, students, assignments, periods, audit, ws, iptables, host, users, courses
@@ -89,16 +90,27 @@ async def startup():
 
         await session.flush()
 
-        existing = await session.execute(select(User).where(User.username == "admin"))
-        if not existing.scalar_one_or_none():
-            session.add(User(
-                username="admin",
-                password_hash=hash_password("linuxlab"),
-                full_name="Administrador",
-                email="admin@linuxlab.local",
-                role_id=admin_role.id,
-            ))
-            await session.commit()
+        default_admin_user = os.getenv("DEFAULT_ADMIN_USER", "")
+        default_admin_pass = os.getenv("DEFAULT_ADMIN_PASS", "")
+        if default_admin_user and default_admin_pass:
+            existing = await session.execute(
+                select(User).where(User.username == default_admin_user)
+            )
+            if not existing.scalar_one_or_none():
+                session.add(User(
+                    username=default_admin_user,
+                    password_hash=hash_password(default_admin_pass),
+                    full_name="Administrador",
+                    email=f"{default_admin_user}@{EMAIL_DOMAIN}",
+                    role_id=admin_role.id,
+                ))
+                logger.info(
+                    "Admin por defecto creado: %s (cambiar password en primer inicio)",
+                    default_admin_user,
+                )
+                await session.commit()
+        else:
+            logger.info("DEFAULT_ADMIN_USER/PASS no configurados — saltando seed admin")
 
         default_template = await session.execute(
             select(VMTemplate).where(VMTemplate.name == "ubuntu-server-main")

@@ -6,6 +6,7 @@ from app.database.session import get_session
 from app.models import User, Role
 from app.core.security import get_current_user, hash_password
 from app.core.rbac import admin_only
+from app.core.config import EMAIL_DOMAIN
 from app.schemas import UserCreate, UserUpdate, UserResponse
 
 router = APIRouter()
@@ -93,7 +94,7 @@ async def create_user(
     if not role_obj:
         raise HTTPException(status_code=422, detail=f"Rol no válido: {body.role_name}")
 
-    email = body.email or f"{body.username}@linuxlab.local"
+    email = body.email or f"{body.username}@{EMAIL_DOMAIN}"
 
     new_user = User(
         username=body.username,

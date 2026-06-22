@@ -12,13 +12,14 @@ Idempotent: safe to run multiple times.
 """
 
 import asyncio
+import os
 import sys
 import libvirt
 from sqlalchemy import select
 from app.database.session import async_session, engine
 from app.models import Base, User, Role, VirtualMachine, VMTemplate
 from app.core.security import hash_password
-from app.core.config import VM_SUBNET
+from app.core.config import VM_SUBNET, EMAIL_DOMAIN
 from app.services.vm_service import build_ports
 
 TEMPLATE_NAME = "ubuntu-server-main"
@@ -37,21 +38,26 @@ async def seed():
             session.add(admin_role)
             await session.flush()
 
-        existing_admin = await session.execute(
-            select(User).where(User.username == "admin")
-        )
-        if not existing_admin.scalar_one_or_none():
-            admin = User(
-                username="admin",
-                password_hash=hash_password("linuxlab"),
-                full_name="Administrador",
-                email="admin@linuxlab.local",
-                role_id=admin_role.id,
+        default_admin_user = os.getenv("DEFAULT_ADMIN_USER", "")
+        default_admin_pass = os.getenv("DEFAULT_ADMIN_PASS", "")
+        if default_admin_user and default_admin_pass:
+            existing_admin = await session.execute(
+                select(User).where(User.username == default_admin_user)
             )
-            session.add(admin)
-            print("Admin creado: admin / linuxlab")
+            if not existing_admin.scalar_one_or_none():
+                admin = User(
+                    username=default_admin_user,
+                    password_hash=hash_password(default_admin_pass),
+                    full_name="Administrador",
+                    email=f"{default_admin_user}@{EMAIL_DOMAIN}",
+                    role_id=admin_role.id,
+                )
+                session.add(admin)
+                print(f"Admin creado: {default_admin_user}")
+            else:
+                print("Admin ya existe")
         else:
-            print("Admin ya existe")
+            print("DEFAULT_ADMIN_USER/PASS no configurados — saltando seed admin")
 
         default_template = await session.execute(
             select(VMTemplate).where(VMTemplate.name == TEMPLATE_NAME)

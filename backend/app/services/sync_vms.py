@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models import VirtualMachine
 from app.core.libvirt.connection import get_connection, HAVE_LIBVIRT
+from app.services.config_service import get_cached_int, get_cached_str
 from app.services.vm_service import build_ports
 
 logger = logging.getLogger(__name__)
@@ -55,14 +56,14 @@ def _domain_to_vm_data(dom) -> dict:
         logger.warning("Error obteniendo nombre del dominio: %s", e)
         name = ""
 
-    ip = _get_vm_ip(dom)
-
     num = 0
     try:
         num = int(name.split("-")[-1]) if "-" in name else 0
     except ValueError:
         pass
 
+    is_running = state == 1
+    ip = _get_vm_ip(dom) if is_running else ""
     if not ip and num:
         from app.core.config import VM_SUBNET
         ip = f"{VM_SUBNET}.{num}"
@@ -76,8 +77,8 @@ def _domain_to_vm_data(dom) -> dict:
         "vcpus": vcpus,
         "ram_mb": max_mem_mb,
         "current_state": state_name,
-        "template_name": "ubuntu-server-main",
-        "disk_gb": 10,
+        "template_name": get_cached_str("default_template", "ubuntu-server-main"),
+        "disk_gb": get_cached_int("default_vm_disk_gb", 10),
         "ports": ports,
     }
 

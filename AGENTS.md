@@ -67,7 +67,36 @@ Multi-profesor RBAC: cada profesor ve solo sus VMs, estudiantes y asignaciones. 
 - Students list soporta `?course_id=N`. Periods list soporta `?course_id=N`.
 - `_get_student_or_404()`: 404 si no existe, 403 si profesor y `created_by != user.id`.
 
-## Relevant Files
+- **Auditoría y corrección de infraestructura (Sesión actual):**
+  - **Frontend Docker eliminado** — contenedor sin red, nginx nunca arrancaba, puerto 80 en conflicto con nginx host. Reemplazado por nginx host sirviendo `frontend/dist/` como estático.
+  - **Nginx host corregido** — `proxy_pass http://127.0.0.1:5173` (Vite dev server inexistente) → `root frontend/dist/` + `try_files $uri $uri/ /index.html` (SPA fallback).
+  - **SSL permissions** — `linuxlab.key` cambiado de 600 a 644 (nginx worker no podía leerlo).
+  - **CORS ampliado** — de solo `http://localhost` a 4 orígenes: `http://localhost`, `https://localhost`, `http://192.168.18.21`, `https://192.168.18.21`.
+  - **Frontend rebuild** — `npm ci && npm run build` (878 módulos, 6.77s).
+  - **SECRET_KEY rotada** — clave nueva `81ae072d...`, `.env.example` sanitizado con placeholders.
+  - **EMAIL_DOMAIN migrado a env var** — `config.py` + integrado en `main.py`, `seed.py`, `auth.py`, `users.py`.
+  - **Docker cleanup** — volúmenes huérfanos eliminados, build cache purgado (1.5GB).
+  - **Stale root files untracked** — `git rm --cached` para `Makefile`, `linuxlab.service`, `pasos.md`, `setup.sh`, `templates.md` + añadidos a `.gitignore`.
+  - **README.md profesional** — documentación completa tipo SaaS con diagrama de arquitectura, one-command install, tabla de componentes.
+  - **CHANGELOG.md v1.0.0** — release notes oficial.
+  - **deploy.sh actualizado** — one-command installer: prerequisites check, .env setup, frontend build, docker compose up, nginx config, SSL fix, health verification.
+  - **Architecture change:** Frontend ya no usa Docker. Nginx del host sirve SPA compilado + reverse proxy a backend. Solo `backend` + `db` en Docker Compose.
+
+## Key Decisions
+- Frontend servido por nginx host (no Docker) — elimina conflicto de puertos, simplifica despliegue, permite HTTPS real.
+- Backend permanece en Docker con `network_mode: host` por libvirt.
+- Ghost VMs (17 huérfanas en DB sin dominio libvirt) no se eliminan — riesgo de romper assignments existentes.
+
+## Next Steps
+1. ~~Rebuild Docker + verify backend starts.~~
+2. ~~Insert/update `system_parameters` rows via SQL if defaults need overriding.~~
+3. ~~Course selector UI en Assignments y Students pages (frontend).~~
+4. Certificado SSL real (Let's Encrypt) para producción.
+5. Backup automático MariaDB.
+6. Deshabilitar `/docs` y `/openapi.json` en producción.
+7. Nginx rate limiting para login endpoint.
+
+## Relevant Files (updated)
 - `backend/app/models/course.py`: modelo Course con `profesor_id`.
 - `backend/app/schemas/course.py`: `CourseCreate`, `CourseUpdate`, `CourseResponse`, `CourseWithCounts`.
 - `backend/app/api/v1/courses.py`: CRUD con `profesor_only` + ownership.

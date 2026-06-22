@@ -1,0 +1,148 @@
+#!/bin/bash
+set -euo pipefail
+
+# ─────────────────────────────────────────────────────
+# LinuxLab — One-Command Install
+# Usage: sudo ./deploy/deploy.sh
+# ─────────────────────────────────────────────────────
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+log()  { echo -e "${CYAN}[$(date +%H:%M:%S)]${NC} $1"; }
+ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
+warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
+fail() { echo -e "  ${RED}✗${NC} $1"; exit 1; }
+
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_DIR"
+
+log "${GREEN}LinuxLab Installer${NC}"
+log "Repository: $REPO_DIR"
+echo ""
+
+# ── Prerequisites ──────────────────────────────────
+log "[1/7] Checking prerequisites..."
+
+command -v docker &>/dev/null && ok "Docker: $(docker --version)" || fail "Docker not found. Install: https://docs.docker.com/engine/install/"
+docker compose version &>/dev/null && ok "Docker Compose: $(docker compose version --short 2>/dev/null || docker compose version)" || fail "Docker Compose not found"
+command -v node &>/dev/null && ok "Node.js: $(node --version)" || warn "Node.js not found — will skip frontend build"
+command -v nginx &>/dev/null && ok "Nginx: $(nginx -v 2>&1 | awk '{print $NF}')" || warn "Nginx not found — install: sudo apt install nginx"
+systemctl is-active --quiet libvirtd && ok "libvirtd: active" || warn "libvirtd not running — VMs won't work"
+echo ""
+
+# ── Environment ────────────────────────────────────
+log "[2/7] Configuring environment..."
+
+if [ ! -f .env ]; then
+    cp .env.example .env
+    ok ".env created from .env.example"
+
+    # Generate SECRET_KEY if still placeholder
+    if grep -q 'cambiar-por-clave-segura-aqui' .env; then
+        NEW_KEY=$(openssl rand -hex 32)
+        sed -i "s/SECRET_KEY=cambiar-por-clave-segura-aqui/SECRET_KEY=$NEW_KEY/" .env
+        ok "SECRET_KEY generated"
+    fi
+
+    # Prompt for admin password
+    echo ""
+    read -rsp "  Set DEFAULT_ADMIN_PASS (leave blank for auto-generate): " ADMIN_PASS
+    echo ""
+    if [ -z "$ADMIN_PASS" ]; then
+        ADMIN_PASS=$(openssl rand -base64 12)
+        echo "  Auto-generated admin password: $ADMIN_PASS"
+    fi
+    sed -i "s/DEFAULT_ADMIN_PASS=cambiar-en-produccion/DEFAULT_ADMIN_PASS=$ADMIN_PASS/" .env
+    ok "Admin password configured"
+else
+    ok ".env already exists — skipping"
+fi
+echo ""
+
+# ── Frontend build ─────────────────────────────────
+log "[3/7] Building frontend..."
+
+if command -v node &>/dev/null; then
+    cd frontend
+    npm ci --silent 2>/dev/null && ok "npm dependencies installed" || warn "npm ci failed — trying npm install"
+    npm install --silent 2>/dev/null || true
+    npm run build &>/dev/null && ok "Frontend built (dist/)" || warn "Frontend build failed — check Node.js version"
+    cd "$REPO_DIR"
+else
+    warn "Node.js not available — frontend build skipped. Build manually: cd frontend && npm install && npm run build"
+fi
+echo ""
+
+# ── Docker services ────────────────────────────────
+log "[4/7] Starting Docker services..."
+
+docker compose build backend &>/dev/null && ok "Backend image built" || warn "Backend build had warnings"
+docker compose up -d &>/dev/null && ok "Docker services started (backend + db)" || fail "Docker compose failed"
+echo ""
+
+# ── Nginx configuration ───────────────────────────
+log "[5/7] Configuring Nginx..."
+
+NGINX_CONF_SRC="$REPO_DIR/nginx/linuxlab.conf"
+NGINX_CONF_DST="/etc/nginx/sites-available/linuxlab"
+
+if [ -f "$NGINX_CONF_SRC" ]; then
+    # Update root path in config to match repo location
+    sed "s|root /home/ubuntu/linuxlab/frontend/dist|root $REPO_DIR/frontend/dist|" "$NGINX_CONF_SRC" > /tmp/linuxlab-nginx.conf
+    cp /tmp/linuxlab-nginx.conf "$NGINX_CONF_DST" 2>/dev/null && ok "Nginx config copied to $NGINX_CONF_DST" || warn "Could not write to $NGINX_CONF_DST (try: sudo cp nginx/linuxlab.conf /etc/nginx/sites-available/)"
+
+    # Enable site
+    ln -sf "$NGINX_CONF_DST" /etc/nginx/sites-enabled/ 2>/dev/null || true
+
+    # Test and reload
+    nginx -t 2>/dev/null && ok "Nginx config valid" || warn "Nginx config has errors — run: sudo nginx -t"
+    systemctl reload nginx 2>/dev/null && ok "Nginx reloaded" || warn "Nginx reload failed — run: sudo systemctl reload nginx"
+else
+    warn "nginx/linuxlab.conf not found — configure manually"
+fi
+echo ""
+
+# ── SSL certificate ────────────────────────────────
+log "[6/7] SSL certificate..."
+
+if [ -f /etc/nginx/ssl/linuxlab.key ]; then
+    # Ensure readable by nginx
+    chmod 644 /etc/nginx/ssl/linuxlab.key 2>/dev/null && ok "SSL key permissions: 644" || warn "Could not fix SSL permissions — run: sudo chmod 644 /etc/nginx/ssl/linuxlab.key"
+else
+    warn "No SSL certificate found. Create one: sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/nginx/ssl/linuxlab.key -out /etc/nginx/ssl/linuxlab.crt"
+fi
+echo ""
+
+# ── Summary ────────────────────────────────────────
+log "[7/7] Final check..."
+
+SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+if [ -z "$SERVER_IP" ]; then
+    SERVER_IP=$(ip route get 1 | awk '{print $NF;exit}')
+fi
+
+# Health check
+sleep 2
+HEALTH=$(curl -s http://localhost:8000/health 2>/dev/null || echo "unreachable")
+if echo "$HEALTH" | grep -q '"ok"'; then
+    ok "Backend API: http://localhost:8000/health → $HEALTH"
+else
+    warn "Backend not responding yet — check: docker compose logs backend"
+fi
+
+echo ""
+echo "╔══════════════════════════════════════════════╗"
+echo "║         LinuxLab — Installation Complete     ║"
+echo "╚══════════════════════════════════════════════╝"
+echo ""
+echo "  Access:  https://${SERVER_IP:-<server-ip>}"
+echo "  Username: $(grep DEFAULT_ADMIN_USER .env | cut -d= -f2)"
+echo "  Password: (configured in .env → DEFAULT_ADMIN_PASS)"
+echo ""
+echo "  Manage:   docker compose ps"
+echo "  Logs:     docker compose logs -f backend"
+echo ""

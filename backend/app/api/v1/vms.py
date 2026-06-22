@@ -14,7 +14,7 @@ from app.services.clone_service import CloneService, mac_from_num
 from app.services.vm_service import build_ports
 from app.services.iptables_service import forward_port, unforward_port, forward_range, unforward_range
 from app.core.config import VM_SUBNET
-from app.services.config_service import get_cached_int
+from app.services.config_service import get_cached_int, get_cached_str
 from app.core.audit import log_event
 from app.services.vm_list_service import list_vms as list_vms_service
 from app.services.vm_bulk_service import delete_vm_by_id, bulk_delete_vms, bulk_action_vms
@@ -90,13 +90,22 @@ async def _create_single_vm(
     template_name: str | None = None,
     vcpus: int | None = None,
     ram_mb: int | None = None,
-    disk_gb: int = 10,
+    disk_gb: int | None = None,
     prefix: str = "vhost",
     username: str = "",
     ip_address: str = "",
     owner_id: int | None = None,
 ) -> dict:
     from sqlalchemy.exc import IntegrityError
+    _default_ram = get_cached_int("default_vm_ram_mb", 4096)
+    _default_vcpus = get_cached_int("default_vm_vcpus", 1)
+    _default_disk = get_cached_int("default_vm_disk_gb", 10)
+    _default_template = get_cached_str("default_template", "ubuntu-server-main")
+
+    ram_mb = ram_mb or _default_ram
+    vcpus = vcpus or _default_vcpus
+    disk_gb = disk_gb or _default_disk
+    tpl = template_name or _default_template
     name = f"{prefix}-{num}"
     mac = mac_from_num(num)
 
@@ -107,14 +116,13 @@ async def _create_single_vm(
     if existing_vm and existing_vm.deleted_at is None:
         return {"vm": None, "status": "skipped", "reason": "ya existe", "name": name, "number": num}
 
-    tpl = template_name or "ubuntu-server-main"
     r = await asyncio.to_thread(
         clone_service.clone_vm,
         source_name=tpl,
         new_name=name,
         new_mac=mac,
-        memory_mb=ram_mb or 4096,
-        vcpus=vcpus or 1,
+        memory_mb=ram_mb,
+        vcpus=vcpus,
     )
     if not r["success"]:
         return {"vm": None, "status": "error", "reason": r["error"], "name": name, "number": num}
@@ -123,8 +131,8 @@ async def _create_single_vm(
         existing_vm.template_name = tpl
         existing_vm.mac_address = mac
         existing_vm.ip_address = f"{VM_SUBNET}.{num}"
-        existing_vm.vcpus = vcpus or 1
-        existing_vm.ram_mb = ram_mb or 4096
+        existing_vm.vcpus = vcpus
+        existing_vm.ram_mb = ram_mb
         existing_vm.disk_gb = disk_gb
         existing_vm.current_state = "shut off"
         existing_vm.ports = build_ports(num)
@@ -138,7 +146,7 @@ async def _create_single_vm(
         vm = VirtualMachine(
             name=name, template_name=tpl, mac_address=mac,
             ip_address=f"{VM_SUBNET}.{num}",
-            vcpus=vcpus or 1, ram_mb=ram_mb or 4096,
+            vcpus=vcpus, ram_mb=ram_mb,
             disk_gb=disk_gb, current_state="shut off",
             ports=build_ports(num),
             owner_id=owner_id,
@@ -400,13 +408,16 @@ async def recreate_vm(
     if assignment and assignment.recreation_count >= max_recreate:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Límite de {max_recreate} recreaciones alcanzado")
 
+    _def_template = get_cached_str("default_template", "ubuntu-server-main")
+    _def_ram = get_cached_int("default_vm_ram_mb", 4096)
+    _def_vcpus = get_cached_int("default_vm_vcpus", 1)
     r = await asyncio.to_thread(
         clone_service.recreate_vm,
         vm.name,
-        template_name=vm.template_name or "ubuntu-server-main",
+        template_name=vm.template_name or _def_template,
         mac_address=vm.mac_address,
-        memory_mb=vm.ram_mb or 4096,
-        vcpus=vm.vcpus or 1,
+        memory_mb=vm.ram_mb or _def_ram,
+        vcpus=vm.vcpus or _def_vcpus,
     )
     if not r["success"]:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=r["error"])
@@ -450,7 +461,8 @@ async def recreate_vm_range(
             results.append({"number": num, "name": name, "status": "skipped", "reason": "no es tu VM"})
             continue
 
-        r = await asyncio.to_thread(clone_service.recreate_vm, vm.name, template_name=vm.template_name or "ubuntu-server-main")
+        _def_template = get_cached_str("default_template", "ubuntu-server-main")
+        r = await asyncio.to_thread(clone_service.recreate_vm, vm.name, template_name=vm.template_name or _def_template)
         if not r["success"]:
             results.append({"number": num, "name": name, "status": "error", "reason": r["error"]})
             continue

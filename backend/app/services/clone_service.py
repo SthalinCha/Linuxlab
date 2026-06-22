@@ -1,14 +1,15 @@
 import logging
+import os
 from app.core.libvirt.connection import get_connection, HAVE_LIBVIRT
-from app.services.config_service import get_cached_str
+from app.services.config_service import get_cached_str, get_cached_int
 
 logger = logging.getLogger(__name__)
 
-POOL_NAME = "images"
-BRIDGE = "virbr0"
-NETWORK = "default"
-MAC_PREFIX = "52:54:00:35:E0"
-STORAGE_PATH = "/var/lib/libvirt/images"
+POOL_NAME = os.getenv("LIBVIRT_POOL", "images")
+BRIDGE = os.getenv("VM_BRIDGE", "virbr0")
+NETWORK = os.getenv("VM_NETWORK", "default")
+MAC_PREFIX = os.getenv("VM_MAC_PREFIX", "52:54:00:35:E0")
+STORAGE_PATH = os.getenv("STORAGE_PATH", "/var/lib/libvirt/images")
 
 
 def mac_from_num(num: int) -> str:
@@ -81,10 +82,11 @@ class CloneService:
             return {"success": False, "error": f"Volumen plantilla '{template_vol_name}' no encontrado: {e}"}
         template_path = template_vol.path()
         new_vol_name = f"{new_name}.qcow2"
+        _disk_gb = get_cached_int("default_vm_disk_gb", 10)
 
         vol_xml = f"""<volume>
   <name>{new_vol_name}</name>
-  <capacity unit='G'>10</capacity>
+  <capacity unit='G'>{_disk_gb}</capacity>
   <target>
     <format type='qcow2'/>
     <permissions>
@@ -147,9 +149,10 @@ class CloneService:
         except libvirt.libvirtError as e:
             return {"success": False, "error": f"Volumen plantilla '{template_name}.qcow2' no encontrado: {e}"}
         template_path = template_vol.path()
+        _disk_gb = get_cached_int("default_vm_disk_gb", 10)
         vol_xml = f"""<volume>
   <name>{vol_name}</name>
-  <capacity unit='G'>10</capacity>
+  <capacity unit='G'>{_disk_gb}</capacity>
   <target>
     <format type='qcow2'/>
     <permissions>

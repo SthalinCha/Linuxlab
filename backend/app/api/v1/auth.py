@@ -9,6 +9,7 @@ from app.core.security import verify_password, create_access_token, create_refre
 from app.core.audit import log_login_event
 from app.core.rate_limiter import login_limiter
 from app.core.rbac import admin_only
+from app.core.config import EMAIL_DOMAIN
 from app.schemas import UserLogin, ChangePasswordRequest
 
 router = APIRouter()
@@ -113,7 +114,7 @@ async def register_user(
         username=body.username,
         password_hash=hash_password(body.password),
         full_name=body.full_name,
-        email=f"{body.username}@linuxlab.local",
+        email=f"{body.username}@{EMAIL_DOMAIN}",
         role_id=admin_role.id,
     )
     session.add(new_user)

@@ -1,7 +1,10 @@
 import logging
+import os
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+LIBVIRT_URI = os.getenv("LIBVIRT_URI", "qemu:///system")
 
 try:
     import libvirt
@@ -19,8 +22,8 @@ def get_connection() -> object:
     if not HAVE_LIBVIRT:
         return DummyConnection()
     if _conn is None:
-        logger.info("Conectando a libvirt (qemu:///system)")
-        _conn = libvirt.open("qemu:///system")
+        logger.info("Conectando a libvirt (%s)", LIBVIRT_URI)
+        _conn = libvirt.open(LIBVIRT_URI)
     return _conn
 
 
