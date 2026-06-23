@@ -191,7 +191,7 @@ export default function Dashboard() {
                 cpu: point.cpu,
                 ram: history.ram_history[i]?.ram ?? 0,
               }))}>
-                <XAxis dataKey="time" fontSize={10} />
+                <XAxis dataKey="time" fontSize={10} tickFormatter={(val) => val ? new Date(val).toLocaleTimeString('es-PE', {hour: '2-digit', minute: '2-digit', hour12: false}) : ''} />
                 <YAxis domain={[0, 100]} fontSize={10} />
                 <Tooltip />
                 <Line

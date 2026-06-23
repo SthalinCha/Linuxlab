@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_session
 from app.models import VMAssignment, Period, VirtualMachine
 from app.core.rbac import profesor_only
+from app.core.dates import utc_iso
 from app.models import User
 from app.services.assignment_service import (
     create_assignment as svc_create,
@@ -167,14 +168,14 @@ async def list_periods(
             "id": row.id,
             "period_name": row.code,
             "name": row.name,
-            "start_date": row.start_date.isoformat(),
-            "end_date": row.end_date.isoformat(),
+            "start_date": utc_iso(row.start_date),
+            "end_date": utc_iso(row.end_date),
             "total": row.total or 0,
             "active": row.active or 0,
             "released": (row.total or 0) - (row.active or 0),
             "student_count": row.student_count or 0,
             "is_active": row.is_active,
-            "closed_at": row.closed_at.isoformat() if row.closed_at else None,
+            "closed_at": utc_iso(row.closed_at),
         }
         for row in result
     ]

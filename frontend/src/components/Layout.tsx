@@ -50,11 +50,6 @@ export default function Layout() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  useEffect(() => {
-    document.body.style.overflow = mobileMenuOpen ? 'hidden' : ''
-    return () => { document.body.style.overflow = '' }
-  }, [mobileMenuOpen])
-
   const handleLogout = () => {
     authLogout()
     navigate('/login')
@@ -68,8 +63,8 @@ export default function Layout() {
     }`
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="bg-slate-800 text-white shadow-md">
+    <div className="h-screen bg-gray-50 flex flex-col">
+      <header className="bg-slate-800 text-white shadow-md flex-shrink-0">
         <div className="max-w-7xl mx-auto px-4 flex items-center h-14">
           <button
             onClick={() => setMobileMenuOpen(true)}
@@ -214,7 +209,7 @@ export default function Layout() {
         </div>
       )}
 
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 min-h-0 overflow-auto">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <Outlet />
         </div>

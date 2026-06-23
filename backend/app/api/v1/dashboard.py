@@ -21,6 +21,7 @@ from app.schemas.dashboard import (
     ActivityItem,
     CapacityResponse,
 )
+from app.core.dates import utc_iso
 
 router = APIRouter()
 
@@ -195,7 +196,7 @@ async def get_recent_activity(
     return {
         "activity": [
             {
-                "time": log.created_at.isoformat() if log.created_at else "",
+                "time": utc_iso(log.created_at) or "",
                 "event": log.action,
                 "resource": f"{log.resource_type or ''} #{log.resource_id}" if log.resource_id else "-",
                 "type": log.event_type,

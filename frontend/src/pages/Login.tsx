@@ -36,7 +36,7 @@ export default function Login() {
       <div className="pointer-events-none absolute right-0 top-28 h-[34rem] w-[34rem] rounded-full bg-emerald-200/40 blur-3xl" />
       <div className="pointer-events-none absolute bottom-[-8rem] left-1/3 h-[26rem] w-[26rem] rounded-full bg-amber-100/45 blur-3xl" />
 
-      <div className="relative mx-auto flex min-h-screen w-full max-w-7xl items-center px-4 py-8 lg:px-8">
+      <div className="relative mx-auto flex h-full w-full max-w-7xl items-center px-4 lg:px-8">
         <section className="relative w-full max-w-[34rem] overflow-hidden rounded-[2rem] border border-white/80 bg-white/88 p-6 shadow-[0_30px_90px_rgba(15,23,42,0.14)] backdrop-blur-xl sm:p-8">
           <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-blue-200/40 blur-3xl" />
           <div className="absolute -left-16 bottom-0 h-40 w-40 rounded-full bg-emerald-200/35 blur-3xl" />

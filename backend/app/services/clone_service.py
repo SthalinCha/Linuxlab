@@ -1,7 +1,10 @@
 import logging
 import os
+import subprocess
 from app.core.libvirt.connection import get_connection, HAVE_LIBVIRT
 from app.services.config_service import get_cached_str, get_cached_int
+from app.services.libvirt_pool import ensure_pool, ensure_template_volume, PoolError
+from app.services.libvirt_network import ensure_dhcp_host, remove_dhcp_host, NetworkError
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +64,72 @@ def _domain_xml(name: str, vol_path: str, mac: str, memory_mb: int = 4096, vcpus
 </domain>"""
 
 
+def _customize_guest(vol_path: str, hostname: str, initramfs: bool = False) -> None:
+    """Customiza el guest OS dentro de una imagen qcow2: hostname, red DHCP e initramfs."""
+    try:
+        vm_num = hostname.split("-")[-1] if "-" in hostname else "0"
+        cockpit_conf = f"""[WebService]
+UrlRoot = /mv{vm_num}
+ForwardedHeader = X-Forwarded-For
+AllowUnencrypted = true
+"""
+        cmds = f"""
+          write /etc/hostname "{hostname}"
+          write /etc/hosts "127.0.0.1 localhost {hostname}
+        ::1     localhost ip6-localhost ip6-loopback"
+          rm-f /etc/machine-id
+          rm-f /var/lib/systemd/random-seed
+          rm-rf /etc/netplan
+          mkdir-p /etc/netplan
+          write /etc/netplan/01-dhcp.yaml "network:
+          version: 2
+          renderer: networkd
+          ethernets:
+            id0:
+              match:
+                name: en*
+              dhcp4: true
+              dhcp6: false"
+          rm-f /etc/network/interfaces
+          rm-f /etc/network/interfaces.d/*
+          mkdir-p /etc/cockpit
+          write /etc/cockpit/cockpit.conf "{cockpit_conf}"
+          command "hostnamectl set-hostname {hostname} || true"
+          command "ssh-keygen -A 2>/dev/null || true"
+          command "systemctl enable cockpit.socket 2>/dev/null || true"
+          {('command "update-initramfs -u -k all 2>/dev/null || update-initramfs -u 2>/dev/null || true"' if initramfs else '# initramfs skipped')}
+        """
+        result = subprocess.run(
+            ["guestfish", "-a", vol_path, "-i"],
+            input=cmds,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode == 0:
+            logger.info("Guest OS customizado: %s", hostname)
+        else:
+            logger.warning("guestfish stderr para %s: %s", hostname, result.stderr[:500])
+    except FileNotFoundError:
+        logger.warning("guestfish no instalado, saltando customización de %s", hostname)
+    except subprocess.TimeoutExpired:
+        logger.warning("guestfish timeout para %s", hostname)
+    except Exception as e:
+        logger.warning("Error customizando guest %s: %s", hostname, e)
+
+
 class CloneService:
     def clone_vm(self, source_name: str, new_name: str, new_mac: str, memory_mb: int = 4096, vcpus: int = 1) -> dict:
         if not HAVE_LIBVIRT:
             logger.error("Intento de clonado sin libvirt disponible")
             return {"success": False, "error": "libvirt no está disponible en este servidor"}
+
+        try:
+            ensure_pool()
+            template_name = source_name or get_cached_str("default_template", "ubuntu-server-main")
+            ensure_template_volume(template_name)
+        except PoolError as e:
+            return {"success": False, "error": str(e)}
 
         import libvirt
         try:
@@ -111,16 +175,26 @@ class CloneService:
 
         try:
             dom = conn.defineXML(xml)
-            return {
-                "success": True,
-                "name": dom.name(),
-                "uuid": dom.UUIDString(),
-                "mac": new_mac,
-                "path": vol_path,
-            }
         except libvirt.libvirtError as e:
             new_vol.delete(0)
             return {"success": False, "error": f"Error definiendo dominio: {e}"}
+
+        try:
+            num = int(new_name.split("-")[-1])
+            ip = f"{os.getenv('VM_SUBNET', '192.168.122')}.{num}"
+            ensure_dhcp_host(new_name, new_mac, ip)
+        except (ValueError, IndexError, NetworkError) as e:
+            logger.warning("No se pudo añadir DHCP host para %s: %s", new_name, e)
+
+        _customize_guest(vol_path, new_name)
+
+        return {
+            "success": True,
+            "name": dom.name(),
+            "uuid": dom.UUIDString(),
+            "mac": new_mac,
+            "path": vol_path,
+        }
 
     def recreate_vm(self, vm_name: str, template_name: str = "",
                      mac_address: str | None = None,
@@ -128,6 +202,14 @@ class CloneService:
         if not HAVE_LIBVIRT:
             logger.error("Intento de recreación sin libvirt disponible")
             return {"success": False, "error": "libvirt no está disponible en este servidor"}
+
+        try:
+            ensure_pool()
+            tpl = template_name or get_cached_str("default_template", "ubuntu-server-main")
+            ensure_template_volume(tpl)
+        except PoolError as e:
+            return {"success": False, "error": str(e)}
+
         import libvirt
         import xml.etree.ElementTree as ET
         try:
@@ -209,6 +291,15 @@ class CloneService:
             except libvirt.libvirtError as e:
                 new_vol.delete(0)
                 return {"success": False, "error": f"Error definiendo dominio: {e}"}
+
+            try:
+                num = int(vm_name.split("-")[-1])
+                ip = f"{os.getenv('VM_SUBNET', '192.168.122')}.{num}"
+                ensure_dhcp_host(vm_name, mac_address, ip)
+            except (ValueError, IndexError, NetworkError) as e:
+                logger.warning("No se pudo añadir DHCP host para %s: %s", vm_name, e)
+
+            _customize_guest(new_path, vm_name)
 
         return {"success": True, "name": vm_name, "path": new_path}
 

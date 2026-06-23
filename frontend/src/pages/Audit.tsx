@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
 import type { AuditLog } from '../types'
+import ContentHeader from '../components/ContentHeader'
 
 const typeColors: Record<string, string> = {
   login: 'bg-blue-100 text-blue-800',
@@ -49,8 +50,7 @@ export default function Audit() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-800">Auditoría</h1>
+      <ContentHeader title="Auditoría" icon="fa-clipboard-list">
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
@@ -66,7 +66,7 @@ export default function Audit() {
           <option value="assignment_create">Asignación</option>
           <option value="assignment_release">Liberación</option>
         </select>
-      </div>
+      </ContentHeader>
 
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded text-sm">

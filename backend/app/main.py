@@ -1,18 +1,15 @@
 import asyncio
 import json
 import logging
-import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import HTTPException
-from sqlalchemy import text, select
-from app.core.config import CORS_ORIGINS, SECRET_KEY, EMAIL_DOMAIN
-from app.models import Base
-from app.database.session import engine, async_session
+from sqlalchemy import text
+from app.core.config import CORS_ORIGINS, SECRET_KEY
+from app.database.session import engine
 from app.api.v1 import auth, dashboard, vms, students, assignments, periods, audit, ws, iptables, host, users, courses
-from app.core.security import hash_password
 from app.services.metrics_collector import collector
 from app.services.config_service import get_cached_int
 from app.core.libvirt.connection import HAVE_LIBVIRT
@@ -70,90 +67,6 @@ _background_task: asyncio.Task | None = None
 
 @app.on_event("startup")
 async def startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    async with async_session() as session:
-        from app.models import User, Role, Student, VMTemplate
-
-        admin_role = await session.execute(select(Role).where(Role.name == "admin"))
-        admin_role = admin_role.scalar_one_or_none()
-        if not admin_role:
-            admin_role = Role(name="admin", description="Administrador del sistema")
-            session.add(admin_role)
-
-        profesor_role = await session.execute(select(Role).where(Role.name == "profesor"))
-        profesor_role = profesor_role.scalar_one_or_none()
-        if not profesor_role:
-            profesor_role = Role(name="profesor", description="Profesor")
-            session.add(profesor_role)
-
-        await session.flush()
-
-        default_admin_user = os.getenv("DEFAULT_ADMIN_USER", "")
-        default_admin_pass = os.getenv("DEFAULT_ADMIN_PASS", "")
-        if default_admin_user and default_admin_pass:
-            existing = await session.execute(
-                select(User).where(User.username == default_admin_user)
-            )
-            if not existing.scalar_one_or_none():
-                session.add(User(
-                    username=default_admin_user,
-                    password_hash=hash_password(default_admin_pass),
-                    full_name="Administrador",
-                    email=f"{default_admin_user}@{EMAIL_DOMAIN}",
-                    role_id=admin_role.id,
-                ))
-                logger.info(
-                    "Admin por defecto creado: %s (cambiar password en primer inicio)",
-                    default_admin_user,
-                )
-                await session.commit()
-        else:
-            logger.info("DEFAULT_ADMIN_USER/PASS no configurados — saltando seed admin")
-
-        default_template = await session.execute(
-            select(VMTemplate).where(VMTemplate.name == "ubuntu-server-main")
-        )
-        if not default_template.scalar_one_or_none():
-            session.add(VMTemplate(
-                name="ubuntu-server-main",
-                description="Plantilla principal de Ubuntu Server",
-                vcpus=1,
-                ram_mb=2048,
-                disk_gb=10,
-            ))
-            await session.commit()
-
-        almalinux_template = await session.execute(
-            select(VMTemplate).where(VMTemplate.name == "almalinux-vhost")
-        )
-        if not almalinux_template.scalar_one_or_none():
-            session.add(VMTemplate(
-                name="almalinux-vhost",
-                description="Plantilla de AlmaLinux (sin GUI)",
-                vcpus=1,
-                ram_mb=2048,
-                disk_gb=10,
-            ))
-            await session.commit()
-
-        existing_students = await session.execute(select(Student).limit(1))
-        if not existing_students.scalar_one_or_none():
-            names = ["Juan Pérez", "Ana López", "Carlos Ruiz", "María García", "Pedro Martínez"]
-            for idx, name in enumerate(names):
-                session.add(Student(
-                    full_name=name,
-                    email=f"estudiante{idx+1}@universidad.edu",
-                    student_code=f"estudiante{idx+1}",
-                ))
-            await session.commit()
-
-        from app.services.sync_vms import sync_libvirt_domains
-        synced, removed = await sync_libvirt_domains(session, setup_iptables=True)
-        if synced:
-            logger.info("Sincronizadas %s VMs desde libvirt", synced)
-
     from app.services.config_service import load_config
     await load_config()
 

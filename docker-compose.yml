@@ -18,13 +18,14 @@ services:
 
   backend:
     build: ./backend
+    env_file: .env
     network_mode: host
     environment:
       DATABASE_URL: mysql+aiomysql://${MARIADB_USER:-linuxlab}:${MARIADB_PASSWORD:-linuxlab_pass}@127.0.0.1:3306/${MARIADB_DATABASE:-linuxlab}
       SECRET_KEY: ${SECRET_KEY}
       ACCESS_TOKEN_EXPIRE_MINUTES: "30"
       REFRESH_TOKEN_EXPIRE_DAYS: "7"
-      CORS_ORIGINS: '["http://localhost", "https://localhost", "http://192.168.18.21", "https://192.168.18.21"]'
+      CORS_ORIGINS: '["http://localhost", "https://localhost"]'
     user: "1000"
     group_add:
       - "982"
@@ -37,6 +38,7 @@ services:
       - /var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock:rw
       - /etc/os-release:/host-os-release:ro
       - /home/ubuntu/.ssh:/app/.ssh:ro
+      - /var/lib/libvirt/images:/var/lib/libvirt/images:rw
     restart: unless-stopped
 
 volumes:

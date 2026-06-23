@@ -6,6 +6,7 @@ from app.database.session import get_session
 from app.models import AuditLog
 from app.core.rbac import admin_only
 from app.models import User
+from app.core.dates import utc_iso
 
 router = APIRouter()
 
@@ -33,7 +34,21 @@ async def list_audit(
     logs = result.scalars().all()
 
     return {
-        "items": logs,
+        "items": [
+            {
+                "id": log.id,
+                "created_at": utc_iso(log.created_at),
+                "event_type": log.event_type,
+                "user_id": log.user_id,
+                "admin_username": log.admin_username,
+                "action": log.action,
+                "resource_type": log.resource_type,
+                "resource_id": log.resource_id,
+                "details": log.details,
+                "ip_address": log.ip_address,
+            }
+            for log in logs
+        ],
         "total": total,
         "limit": limit,
         "offset": offset,

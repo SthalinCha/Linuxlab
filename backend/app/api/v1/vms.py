@@ -10,13 +10,14 @@ from app.models import VirtualMachine, VMAssignment, VMTemplate
 from app.core.security import get_current_user
 from app.models import User
 from app.core.libvirt.vm_manager import VMManager
-from app.services.clone_service import CloneService, mac_from_num
+from app.services.clone_service import CloneService, mac_from_num, _customize_guest
 from app.services.vm_service import build_ports
 from app.services.iptables_service import forward_port, unforward_port, forward_range, unforward_range
 from app.core.config import VM_SUBNET
 from app.services.config_service import get_cached_int, get_cached_str
 from app.core.audit import log_event
 from app.services.vm_list_service import list_vms as list_vms_service
+from app.services.sync_vms import sync_libvirt_domains
 from app.services.vm_bulk_service import delete_vm_by_id, bulk_delete_vms, bulk_action_vms
 from app.services.vm_port_service import add_port_to_vm, remove_port_from_vm, bulk_add_ports_to_vm
 from sqlalchemy.orm import selectinload
@@ -175,6 +176,7 @@ async def list_vms(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
+    await sync_libvirt_domains(session)
     result = await list_vms_service(session, vm_manager, state, include_templates, limit, offset, user)
     items = []
     for vm in result["items"]:
@@ -252,6 +254,17 @@ async def start_vm(
     await session.commit()
     await log_event(session, "vm_start", user.username, f"Inició VM {vm.name}",
                     "vm", vm.id, ip_address=_ip_from_request(request))
+    if vm.ip_address and vm.mac_address:
+        try:
+            from app.services.libvirt_network import ensure_dhcp_host
+            ensure_dhcp_host(vm.name, vm.mac_address, vm.ip_address)
+        except Exception as e:
+            logger.warning("Error asegurando DHCP host para %s: %s", vm.name, e)
+    try:
+        num = int(vm.name.split("-")[-1])
+        await _auto_iptables(num)
+    except (ValueError, IndexError):
+        pass
     return {"message": f"VM {vm.name} encendida"}
 
 
@@ -270,6 +283,11 @@ async def shutdown_vm(
     await session.commit()
     await log_event(session, "vm_shutdown", user.username, f"Apagó VM {vm.name}",
                     "vm", vm.id, ip_address=_ip_from_request(request))
+    try:
+        num = int(vm.name.split("-")[-1])
+        await _auto_uniptables(num)
+    except (ValueError, IndexError):
+        pass
     return {"message": f"VM {vm.name} apagada"}
 
 
@@ -304,6 +322,11 @@ async def destroy_vm(
     await session.commit()
     await log_event(session, "vm_destroy", user.username, f"Forzó apagado de VM {vm.name}",
                     "vm", vm.id, ip_address=_ip_from_request(request))
+    try:
+        num = int(vm.name.split("-")[-1])
+        await _auto_uniptables(num)
+    except (ValueError, IndexError):
+        pass
     return {"message": f"VM {vm.name} forzada a apagar"}
 
 
@@ -586,3 +609,41 @@ async def bulk_ports(
     resp = VirtualMachineResponse.model_validate(result)
     resp.owner_name = result.owner.full_name if result.owner else None
     return resp
+
+
+@router.post("/repair")
+async def repair_vms(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    if user.role.name not in ("admin", "profesor"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No autorizado")
+    result = await session.execute(
+        select(VirtualMachine).where(
+            VirtualMachine.deleted_at.is_(None),
+            VirtualMachine.template_id.is_(None),
+        )
+    )
+    vms = result.scalars().all()
+    repaired = []
+    errors = []
+    for vm in vms:
+        if vm.current_state != "shut off":
+            continue
+        vol_path = f"/var/lib/libvirt/images/{vm.name}.qcow2"
+        _customize_guest(vol_path, vm.name, initramfs=True)
+        if vm.mac_address and vm.ip_address:
+            from app.services.libvirt_network import ensure_dhcp_host, dhcp_host_exists
+            if not dhcp_host_exists(vm.mac_address):
+                try:
+                    ensure_dhcp_host(vm.name, vm.mac_address, vm.ip_address)
+                    repaired.append(vm.name)
+                except Exception as e:
+                    errors.append({"vm": vm.name, "error": str(e)})
+            else:
+                repaired.append(f"{vm.name} (DHCP ya existe)")
+    await log_event(session, "vms_repair", user.username,
+                    f"Reparación masiva: {len(repaired)} ok, {len(errors)} errores",
+                    ip_address=_ip_from_request(request))
+    return {"repaired": len(repaired), "errors": errors, "total": len(vms)}

@@ -5,10 +5,11 @@ import psutil
 from collections import deque
 from threading import Lock
 from sqlalchemy import select, text
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.core.libvirt.connection import get_connection, HAVE_LIBVIRT
 from app.database.session import async_session
 from app.models.host_metric import HostMetric
+from app.core.dates import utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +27,11 @@ class MetricsCollector:
         ram = psutil.virtual_memory().percent
         disk = psutil.disk_usage("/").percent
         now = time.time()
-        timestamp = time.strftime("%H:%M", time.localtime(now))
 
         with self._lock:
-            self.cpu_history.append({"time": timestamp, "cpu": round(cpu, 1)})
-            self.ram_history.append({"time": timestamp, "ram": round(ram, 1)})
-            self.disk_history.append({"time": timestamp, "disk": round(disk, 1)})
+            self.cpu_history.append({"time": now, "cpu": round(cpu, 1)})
+            self.ram_history.append({"time": now, "ram": round(ram, 1)})
+            self.disk_history.append({"time": now, "disk": round(disk, 1)})
 
         try:
             async with async_session() as session:
@@ -40,7 +40,7 @@ class MetricsCollector:
                     ram_percent=round(ram, 1),
                     disk_percent=round(disk, 1),
                 ))
-                cutoff = datetime.utcnow() - timedelta(hours=48)
+                cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
                 await session.execute(
                     text("DELETE FROM host_metrics WHERE timestamp < :cutoff"),
                     {"cutoff": cutoff},
@@ -63,17 +63,24 @@ class MetricsCollector:
             rows = result.scalars().all()
             if rows:
                 rows.reverse()
-                cpu = [{"time": r.timestamp.strftime("%H:%M"), "cpu": round(r.cpu_percent, 1)} for r in rows]
-                ram = [{"time": r.timestamp.strftime("%H:%M"), "ram": round(r.ram_percent, 1)} for r in rows]
+                cpu = [
+                    {"time": utc_iso(r.timestamp), "cpu": round(r.cpu_percent, 1)}
+                    for r in rows
+                ]
+                ram = [
+                    {"time": utc_iso(r.timestamp), "ram": round(r.ram_percent, 1)}
+                    for r in rows
+                ]
                 return {"cpu_history": cpu, "ram_history": ram}
 
         with self._lock:
-            cpu = list(self.cpu_history)
-            ram = list(self.ram_history)
+            cpu = [{"time": utc_iso(datetime.fromtimestamp(p["time"], tz=timezone.utc)), "cpu": p["cpu"]} for p in self.cpu_history]
+            ram = [{"time": utc_iso(datetime.fromtimestamp(p["time"], tz=timezone.utc)), "ram": p["ram"]} for p in self.ram_history]
         if not cpu:
+            now = time.time()
             c = psutil.cpu_percent(interval=0)
             r = psutil.virtual_memory().percent
-            t = time.strftime("%H:%M")
+            t = utc_iso(datetime.fromtimestamp(now, tz=timezone.utc))
             cpu = [{"time": t, "cpu": round(c, 1)}]
             ram = [{"time": t, "ram": round(r, 1)}]
         return {"cpu_history": cpu, "ram_history": ram}

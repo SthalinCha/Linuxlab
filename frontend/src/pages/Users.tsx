@@ -87,15 +87,14 @@ export default function Users() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <ContentHeader title="Usuarios" icon="fa-users-gear" />
+      <ContentHeader title="Usuarios" icon="fa-users-gear">
         <button
           onClick={openCreate}
           className="bg-slate-800 text-white px-4 py-2 rounded text-sm hover:bg-slate-700"
         >
           <i className="fas fa-plus mr-1"></i>Crear Usuario
         </button>
-      </div>
+      </ContentHeader>
 
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded text-sm">
