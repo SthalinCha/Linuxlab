@@ -1,6 +1,15 @@
+import asyncio
 import subprocess
+from typing import Optional
 from app.core.config import VM_SUBNET, get_host_ip
 from app.services.config_service import get_port_map
+
+
+logger = __import__("logging").getLogger(__name__)
+
+_pending_batch: list[tuple[str, str]] = []
+_batch_lock = asyncio.Lock()
+_BATCH_FLUSH_THRESHOLD = 20
 
 
 def _sudo(cmd: list[str]) -> subprocess.CompletedProcess:
@@ -33,6 +42,54 @@ def _del_rule(table: str, chain: str, args: list[str]) -> tuple[bool, str]:
     if r.returncode == 0:
         return True, f"Eliminada: {desc}"
     return False, r.stderr.strip() or f"Error eliminando: {desc}"
+
+
+async def _add_batch_rule(table: str, chain: str, args: list[str], vm_num: int, desc: str) -> tuple[bool, str]:
+    global _pending_batch
+    rule_text = f"-A {chain} {' '.join(args)}"
+    async with _batch_lock:
+        _pending_batch.append((table, rule_text))
+        if len(_pending_batch) >= _BATCH_FLUSH_THRESHOLD:
+            await _flush_batch()
+    return True, f"batched: {desc}"
+
+async def _del_batch_rule(table: str, chain: str, args: list[str], vm_num: int, desc: str) -> tuple[bool, str]:
+    global _pending_batch
+    rule_text = f"-D {chain} {' '.join(args)}"
+    async with _batch_lock:
+        _pending_batch.append((table, rule_text))
+        if len(_pending_batch) >= _BATCH_FLUSH_THRESHOLD:
+            await _flush_batch()
+    return True, f"batch-del: {desc}"
+
+def _run_iptables_restore(rules_text: str) -> None:
+    """Ejecuta iptables-restore --noflush (EN UN THREAD para no bloquear el event loop)."""
+    try:
+        r = subprocess.run(
+            ["sudo", "-n", "iptables-restore", "--noflush"],
+            input=rules_text, text=True, capture_output=True, timeout=30,
+        )
+        if r.returncode != 0:
+            logger.warning("iptables-restore batch error: %s", r.stderr[:300])
+    except Exception as e:
+        logger.warning("iptables-restore exception: %s", e)
+
+
+async def _flush_batch() -> None:
+    global _pending_batch
+    if not _pending_batch:
+        return
+
+    batch = _pending_batch.copy()
+    _pending_batch.clear()
+
+    tables: dict[str, list[str]] = {}
+    for table, rule_text in batch:
+        tables.setdefault(table, []).append(rule_text)
+
+    for table, rules in tables.items():
+        rules_text = f"*{table}\n" + "\n".join(rules) + "\nCOMMIT\n"
+        await asyncio.to_thread(_run_iptables_restore, rules_text)
 
 
 def _vm_rules(num: int) -> list[tuple[list[str], str]]:
@@ -82,39 +139,42 @@ def unforward_port(dest_ip: str, host_port: int, vm_port: int, desc: str) -> tup
     return ok, msg
 
 
-def _add_prerouting_and_output(args: list[str], results: list, vm_label: int | str, desc: str):
-    """Add a DNAT rule to both PREROUTING (external) and OUTPUT (local) chains."""
-    ok_prerouting, msg_prerouting = _add_rule("nat", "PREROUTING", args)
+async def _add_prerouting_and_output(args: list[str], results: list, vm_label: int, desc: str):
+    """Add a DNAT rule to both PREROUTING (external) and OUTPUT (local) chains via batch."""
+    ok_prerouting, msg_prerouting = await _add_batch_rule("nat", "PREROUTING", args, vm_label, desc)
     results.append({"vm": vm_label, "rule": desc, "chain": "PREROUTING",
                     "status": "ok" if ok_prerouting else "error", "message": msg_prerouting})
-    ok_output, msg_output = _add_rule("nat", "OUTPUT", args)
+    ok_output, msg_output = await _add_batch_rule("nat", "OUTPUT", args, vm_label, desc)
     results.append({"vm": vm_label, "rule": desc, "chain": "OUTPUT",
                     "status": "ok" if ok_output else "error", "message": msg_output})
 
 
-def _del_prerouting_and_output(args: list[str], results: list, vm_label: int | str, desc: str):
-    ok_prerouting, msg_prerouting = _del_rule("nat", "PREROUTING", args)
+async def _del_prerouting_and_output(args: list[str], results: list, vm_label: int, desc: str):
+    ok_prerouting, msg_prerouting = await _del_batch_rule("nat", "PREROUTING", args, vm_label, desc)
     results.append({"vm": vm_label, "rule": desc, "chain": "PREROUTING",
                     "status": "ok" if ok_prerouting else "error", "message": msg_prerouting})
-    ok_output, msg_output = _del_rule("nat", "OUTPUT", args)
+    ok_output, msg_output = await _del_batch_rule("nat", "OUTPUT", args, vm_label, desc)
     results.append({"vm": vm_label, "rule": desc, "chain": "OUTPUT",
                     "status": "ok" if ok_output else "error", "message": msg_output})
 
 
-def forward_range(from_num: int, to_num: int) -> dict:
+async def forward_range(from_num: int, to_num: int) -> dict:
     results = []
-    _ensure_forwarding(results)
+    await asyncio.to_thread(_ensure_forwarding, results)
     for n in range(from_num, to_num + 1):
         for args, desc in _vm_rules(n):
-            _add_prerouting_and_output(args, results, n, desc)
+            await _add_prerouting_and_output(args, results, n, desc)
+
+    await _flush_batch()
     return {"success": True, "results": results, "total": len(results)}
 
 
-def unforward_range(from_num: int, to_num: int) -> dict:
+async def unforward_range(from_num: int, to_num: int) -> dict:
     results = []
     for n in range(from_num, to_num + 1):
         for args, desc in _vm_rules(n):
-            _del_prerouting_and_output(args, results, n, desc)
+            await _del_prerouting_and_output(args, results, n, desc)
+    await _flush_batch()
     return {"success": True, "results": results, "total": len(results)}
 
 

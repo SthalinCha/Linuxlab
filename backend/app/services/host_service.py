@@ -67,12 +67,6 @@ def get_host_metrics() -> dict:
     except Exception as e:
         logger.debug("sensors_temperatures no disponible: %s", e)
 
-    from app.core.libvirt.vm_manager import VMManager
-    mgr = VMManager()
-    domains = mgr.list_domains()
-    total_vms = len(domains)
-    running_vms = sum(1 for d in domains if d.get("state") == "running")
-
     result = {
         "hostname": conn.getHostname(),
         "os": os_info,
@@ -89,9 +83,6 @@ def get_host_metrics() -> dict:
         "load_1": round(load_1, 2),
         "load_5": round(load_5, 2),
         "load_15": round(load_15, 2),
-        "total_vms": total_vms,
-        "running_vms": running_vms,
-        "stopped_vms": total_vms - running_vms,
     }
     _metrics_cache = result
     _metrics_cache_time = now

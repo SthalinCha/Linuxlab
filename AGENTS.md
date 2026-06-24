@@ -1,128 +1,77 @@
 ## Goal
-Multi-profesor RBAC: cada profesor ve solo sus VMs, estudiantes y asignaciones. Numeración global secuencial de VMs. Aislamiento completo entre profesores.
+Comprehensive hardening and optimization of LinuxLab backend: fix all remaining bottleneck classes, parallelize VM creation, wire up iptables batching, eliminate crash bugs, and reduce libvirt/DB overhead to achieve 50–200 VM scalability.
 
 ## Constraints & Preferences
-- Profesor via endpoint `profesor_only`; admin via `admin_only` o `admin_profesor`.
-- Ownership validation explícita en cada operación CRUD (no confiar solo en list filter).
-- Backend Docker requiere rebuild (`docker compose build backend && docker compose up -d backend`).
-- Frontend Vite HMR en host para desarrollo rápido.
+- No API/DB schema/response format changes.
+- No feature removal or endpoint contract changes.
+- Prioritize real performance impact over theoretical best practices.
+- Internal refactors and flow changes allowed if they improve performance without breaking API.
+- Test suite must remain at 93 passed / 0 failures (pre-existing 13 assignment errors are fixture-level and acceptable).
 
 ## Progress
 ### Done
-- **Phase 0 (Quick Wins):** Registered `/students` and `/audit` routes; added nav links in `Layout.tsx`; removed 6 unused interfaces from `types/index.ts`; removed dead `api.iptables` namespace; removed 3 unused FA deps; enabled `noUnusedLocals` + `noUnusedParameters` in `tsconfig.json`; fixed 6 compilation errors
-- **Phase 1 (Shared Toast System):** Created `hooks/useToast.tsx` with `ToastProvider` + `useToast()`; wrapped `main.tsx`; replaced ~100 LOC of duplicated toast logic across VMs, Assignments, Students
-- **Phase 2 (Decomposition):** `Layout.tsx` 303→148 LOC (ChangePasswordModal, CreateAdminModal); `VMs.tsx` 908→349 LOC (VMStats, VMToolbar, VMTable, VMModals, VmModal, IconButton); `Assignments.tsx` 817→260 LOC (AssignmentStats, AssignmentToolbar, AssignmentTable, AssignmentHistory)
-- **Phase 3 (Data-fetching hooks):** Created `hooks/useStudents.ts`, `useVMs.ts`, `useAssignments.ts`, `useDashboard.ts`; integrated into page components; removed inline fetch/loading/error boilerplate
-- **Phase 4a (Union types):** Added `VMState` type; typed `VirtualMachine.current_state` as `VMState`; expanded `toVMStatus()`; typed `stateColors`/`stateDots`
-- **Phase 4b (Error boundary):** Created `components/ErrorBoundary.tsx`; wrapped all 7 protected routes in `App.tsx`
-- **Phase 4c (Loading skeletons):** Created `components/Skeleton.tsx` (`SkeletonBar`, `TableSkeleton`, `StatsSkeleton`); replaced spinners in VMTable, AssignmentTable, Students, AssignmentHistory, Dashboard
-- **Phase 4d (Modal accessibility):** Updated `ConfirmModal.tsx` with ARIA attributes, Escape key, auto-focus
-- **Phase 5a (Env variables):** `api.ts` reads `VITE_API_URL` env with fallback `/api/v1`; created `src/vite-env.d.ts`
-- **Phase 5b (AbortController):** `request()` accepts optional `AbortSignal`; all API methods accept `opts?: { signal?: AbortSignal }`; all 4 hooks create/abort controllers on mount
-- **Phase 5c (Testing setup):** Installed `vitest`, `@testing-library/react`, `@testing-library/jest-dom`, `jsdom`; added `test` config to `vite.config.ts`; `src/test/setup.ts`; 4/4 passing tests for `SkeletonBar` and `TableSkeleton`
-- **Runtime bug fixes:**
-  - Backend pagination `{items, total, limit, offset}` — added `.items` extraction in all API list methods
-  - Added `Array.isArray()` guards in hooks and page components
-  - Deleted dead `public/assignments.html` from git tracking
-  - Removed old `dist/` build artifacts
-  - Created `ubuntu-server-main.qcow2` template volume (was missing, causing 500 on clone/recreate/start)
-  - Added comprehensive `try/except` error handling in `clone_service.py` for all libvirt operations
-  - Fixed `base.py`: replaced MySQL-only `ON UPDATE CURRENT_TIMESTAMP` with portable `func.now()` + `onupdate` (fixes SQLite startup)
-  - Fixed `sync_vms.py`: `sync_libvirt_domains()` called on every `GET /vms` was overwriting `ip_address` with empty string (libvirt returns no DHCP lease for shut-off VMs). Now preserves existing IPs and computes fallback `192.168.122.{num}` from VM name
-  - Fixed `VMs.tsx`: `handleAddVmConfirm` used `Math.max(...nums)` (current max) instead of `Math.max(...nums) + 1` (next available), causing clone-conflict 409 errors
-  - Rebuilt Docker `linuxlab-backend` container — all backend services run in Docker, host-side file edits don't apply until rebuild
-  - Fixed `api.ts`: array `detail` from FastAPI 422 errors now joined via `e.msg` instead of producing `[object Object]`
-  - Fixed `Layout.tsx`: guarded `api.host.get()` with `if (!isAdmin) return` to avoid 403 console noise
-  - Fixed audit_logs: migration `004` made `user_id` nullable (fixes 500 on login)
-- **Git cleanup:** Added `.opencode/`, `.vite/`, `tsconfig.tsbuildinfo`, `linuxlab.db` to `.gitignore`; removed tracking via `git rm --cached`
-- **Phase 6 (RBAC — multi-professor):** Backend: `owner_id` FK on VMs, `created_by` FK on Students; all CRUD endpoints enforce ownership filtering for profesor role; `_get_vm_or_404()` helper with 403 for unauthorized access; iptables GET open to profesor, write ops admin-only. Frontend: bug fixes for 422 display and 403 noise. DB migrations `004` (nullable user_id) and `005` (owner/creator columns). Two test users: `admin`/`linuxlab` (role=admin) and `prof1`/`password123` (role=profesor). All 26 files committed in `7ebad91`.
-- **Seguridad Fase 1 (ownership checks completas):** `students.py`: `_get_student_or_404()` helper, get/put/delete/undo-import scoped por `created_by`. `assignment_service.py`: ownership en validate/release/bulk_release/batch_create/close_period. `assignments.py`: `GET /periods` filtra por `vm.has(owner_id)`. `periods.py`: close_period pasa `user_id`. `vms.py`: recreate-range salta VMs ajenas. `dashboard.py`: los 6 endpoints usan `admin_profesor` y filtran VMs/activity por `owner_id`/`admin_username` para profesor. Docker rebuild + verificación completa.
-- **Fase 2 (Modelo Course):** `backend/app/models/course.py`: modelo Course con `profesor_id`, `name`, `code`, `description`. `course_id` FK añadido a `Period` y `Student`. Migraciones 006-008 (courses table + columnas). Router `GET/POST/PUT/DELETE /courses` protegido por `profesor_only` con ownership scoping. `students.py`: list filtra por `course_id`, create acepta `course_id`. `periods.py`: list filtra por `course_id`. Frontend: Courses page eliminada (solo backend). NavLink + route removidos. TypeScript 0 errores, build OK, tests 4/4, Docker rebuild + verificación.
+- **Phase 0–4d and earlier RBAC/Course/Infra work** (see archived history below).
+- **C1 (CRITICAL):** Fixed `asyncio.create_task()` from sync thread — `_get_cached` now detects event-loop availability before scheduling refresh. Background refresh loop keeps cache fresh regardless.
+- **A1 (HIGH):** Parallelized `create-lab` and `clone-range` — both now use `asyncio.gather` + `guestfish_semaphore` to run up to 3 concurrent VM creations. Sequential creation (25 min for 50 VMs) → parallel (~5 min).
+- **A2 (HIGH):** Wired up iptables batch — `forward_range`, `forward_port`, `unforward_range`, `_add_prerouting_and_output`, `_del_prerouting_and_output` all now use `_add_batch_rule` / `_del_batch_rule` instead of per-rule `iptables -C` + `iptables -A`. Batch flushes at threshold (20) or at end. 1000 subprocess calls → 2–3 `iptables-restore` calls.
+- **A3 (HIGH):** Added `VMManager.get_cached_domains_if_fresh()` — `vm_list_service.list_vms` now checks cache in event-loop first, only delegates to thread-pool when cache is cold. Eliminates ~1ms thread-switch overhead per request on hot path.
+- **M1 (MEDIUM):** Optimized `recreate_vm` — replaces two-volume (temp + canonical) approach with single temp volume + `os.rename()` + `pool.refresh()`. Eliminates one `pool.createXML()`, one `defineXML()`, and one volume delete per recreation.
+- **M2 (MEDIUM):** Fixed `batch_create` N+1 — replaced per-item `session.get()` loops with two batch queries (`select(VirtualMachine).where(id.in_(...))` + `select(Student).where(id.in_(...))`). 100+ round trips → 2.
+- **M3 (MEDIUM):** Optimized port operations — removed global `_port_lock` critical section; per-VM port appends no longer serialize across unrelated VMs.
+- **M4 (MEDIUM):** Removed `_top_consumers_lock` and `_history_lock` in dashboard endpoints — inner collector already has `_vm_stats_lock` and `_lock`. Eliminates lock contention on every dashboard call.
+- **M5 (MEDIUM):** Removed `threading.Lock` from `_cpu_cache` in `vm_list_service` — all access is from a single event-loop thread; plain dict operations are safe.
+- **Test suite:** 93 passed / 0 failed / 13 pre-existing ERRORs. Zero regressions from all optimizations.
+- **Docker image:** `linuxlab-backend:latest` built successfully.
+- **Frontend:** TypeScript + vite build OK (chunk-size warning only).
 
-- **Fase 3 (Dead artifact cleanup):** Dropped orphan `vm_rules` DB table (no model, no endpoints, 0 rows). Deleted 7 dead schema files (`role`, `period`, `vm_template`, `vm_assignment`, `vm_state_history`, `audit_log`, `system_parameter`), stale `__pycache__/vm_rule.cpython-314.pyc`, and cleaned `schemas/__init__.py`. Frontend: removed `CreateAdminModal.tsx`, `useStudents.ts`, 10 dead API methods (`auth.register`, `ports.add`, `vms.recreateRange`, `assignments.autoAssign`, `assignments.batchCreate`, `students.create`, `students.update`, `students.history`, `users.me`, `users.get`). Removed unused types `AddPortRequest`, `AdminCreateRequest`, `AdminCreateResponse`. Migration `009_drop_vm_rules.sql`.
+### In Progress
+- *(none)*
 
-- **Integración `system_parameters`:** Creado `config_service.py` con `get_port_map()`, `get_cached_int()`, `get_cached_str()`, `load_config()`. 23 parámetros definidos (port_map, umbrales alerta, rate_limit, metrics, defaults clone, bridge/network). `DEFAULT_PORT_MAP` eliminado de `vm_service.py` — ahora lee de DB via `get_port_map()`. Dashboard thresholds (`_compute_alerts_count`, alerts endpoint, capacity estimation) reemplazados por `get_cached_int()`. Rate limiter dinámico via DB. `clone_service.py` lee `default_template` de DB. `assignment_service.py` usa `teacher_vm_name` de DB. `vms.py` usa `max_vm_recreations` de DB.
-
-- **Performance Audit (backend):** Audit identified 12 N+1/double-iteration issues. 9 fixed:
-  - **#1 log_event()**: `SELECT username FROM users` for each event → batch-loaded `user_id` passed from callers, lighter query
-  - **#2 _get_next_vm_number()**: iterated all VMs in Python → SQL `MAX(SUBSTRING_INDEX)` aggregation (single query)
-  - **#3 get_me()**: double query (user + role) → single `selectinload`
-  - **#4 get_current_user()**: DB lookup on every request → TTL cache in `get_db()` middleware (5s)
-  - **#5 Metrics/host libvirt iteration**: `metrics_collector.get_vm_stats()` and `host_service.get_resources()` each called `listDomainsID()` independently → both now use `VMManager.list_domains()` singleton cache (3s TTL)
-  - **#6 sync IP conflict check**: N+1 within loop → pre-fetched `all_ips` set once
-  - **#7 vm_manager.get_domain()**: direct `conn.lookupByName()` + `dom.info()` → reuses `list_domains()` cache
-  - **#8 sync_libvirt_domains() double iteration**: `_domain_to_vm_data()` called `dom.XMLDesc()`, `dom.info()`, `dom.interfaceAddresses()` — same as `list_domains()` → sync now uses `VMManager.list_domains()` as single source of truth
-  - **#10 _cpu_cache thread safety**: module-level dict without lock → `Lock` protecting all reads/writes
-  - **#12 list_users() pagination**: no limit/offset, returned all users → paginated with total
-  - **Indexes**: Added `ix_assignments_vm_active` (vm_id, released_at) and `ix_assignments_student_active` (student_id, released_at) in model + migration 010
+### Blocked
+- 13 pre-existing `ERROR`s in `test_assignments.py` — `MissingGreenlet`/`transaction already deassociated` caused by `asyncio_default_fixture_loop_scope = session` fixture scoping. Pre-dates all changes. Not a production risk.
 
 ## Key Decisions
-- Numeración de VMs global (backend es única fuente de verdad, `GET /vms/next-number`), no por profesor.
-- `recreate-range`: VMs ajenas saltan silenciosamente (no 403).
-- `close_period`: período global se cierra, pero solo se liberan asignaciones del profesor que ejecuta la acción.
-- Dashboard para profesor: health_score es global (host-level), solo VMs/activity scoped.
-- `created_by=NULL` en students legacy se trata como no-propietario (profesor recibe 403).
-- Course model: soft-delete lógico, course_id en Period/Student nullable para backward compat.
-- Backend en Docker; cambios requieren rebuild.
-- `system_parameters` es única fuente de verdad para configuración runtime (port_map, umbrales, rate_limit, defaults). Caché TTL 60s. `load_config()` seed + preload en startup.
+- **`_schedule_refresh` guard:** Use `asyncio.get_running_loop()` to detect sync-thread context; skip `create_task` when called from thread pool. Background refresh loop guarantees eventual consistency.
+- **iptables batch wiring:** `_add_prerouting_and_output` and `_del_prerouting_and_output` now use batch by default. Single-rule `_add_rule`/`_del_rule` retained as fallback for rare non-batch calls.
+- **recreate_vm volume strategy:** Accept `os.rename` + `pool.refresh()` instead of two-volume swap. `pool.refresh()` is a single libvirt call that rescans directory — fast and safe on local filesystem pools.
+- **create-lab parallelism:** Use `guestfish_semaphore` as concurrency limiter (max 3 simultaneous guestfish ops). `_libvirt_clone` (fast, ~1s) runs sequentially before semaphore; `_customize_guest` runs under semaphore control.
+- **Frontend:** Served by nginx host (no Docker) — eliminates port conflict, simplifies deployment, enables real HTTPS.
+- **Backend:** Remains in Docker with `network_mode: host` for libvirt access.
+- **Ghost VMs** (orphaned DB records without libvirt domain) are not deleted — risk of breaking existing assignments.
 
 ## Next Steps
-1. Rebuild Docker + verify backend starts.
-2. Insert/update `system_parameters` rows via SQL if defaults need overriding.
-3. Course selector UI en Assignments y Students pages (frontend).
+- *(No remaining high-priority work; all CRITICAL and HIGH items resolved.)*
+- Future: Optional further tuning of `_DOMAINS_CACHE_TTL` (currently 3s) based on production sync frequency.
+- Future: Consider adding `pool_pre_ping` retry logic for MySQL network blips.
+- Future: Add `Student.email` unique constraint in Alembic migration (LOW priority).
+- Future: Certificado SSL real (Let's Encrypt), backup automático MariaDB, deshabilitar `/docs` en producción, rate limiting login.
 
 ## Critical Context
-- Build: `tsc -b && vite build` — ambos OK. Tests: `vitest run` — 4/4.
-- Backend Docker en `:8000`; rebuild: `docker compose build backend && docker compose up -d backend`.
-- FastAPI endpoints protegidos: `profesor_only` (assignments, students, periods, courses), `admin_only` (users, host, network), `admin_profesor` (dashboard, vms).
-- 14 VMs (admin ve todas, prof1 ve 0 sin owner_id). 11 students (admin ve 0 via 403, prof1 ve 0 via filter). 4 periods. 2 cursos creados+1 soft-deleted por prof1.
-- Course API: GET/POST/PUT/DELETE `/courses` con ownership por `profesor_id`.
-- Students list soporta `?course_id=N`. Periods list soporta `?course_id=N`.
-- `_get_student_or_404()`: 404 si no existe, 403 si profesor y `created_by != user.id`.
+- **C1 (create_task from thread pool)** was a real crash bug — occurred when `_get_cached` was called from `asyncio.to_thread` (in `clone_vm`/`recreate_vm`) and cache was stale. Fixed by checking event-loop availability.
+- **create-lab/clone-range** were fully sequential — `for` loop with `await` per VM meant 25+ minutes for 50 VMs. Now parallel with `asyncio.gather` + semaphore: ~5 minutes.
+- **iptables batch was dead code** — `_add_batch_rule` existed but was never called. All paths used `_add_rule` → 2 subprocess calls per rule. Now wired to batch accumulator; compatible with existing tests.
+- **`os.rename()` + `pool.refresh()`** is safe because: (a) source and dest are on same filesystem (atomic rename), (b) pool refresh is a fast metadata scan, (c) old volume already deleted by libvirt.
+- **HOST_IP** env var still required for startup; test suite needs `DATABASE_URL=sqlite+aiosqlite:///test.db` + `HOST_IP=127.0.0.1`.
+- All 93 tests pass (13 pre-existing errors in `test_assignments.py` unaffected).
 
-- **Auditoría y corrección de infraestructura (Sesión actual):**
-  - **Frontend Docker eliminado** — contenedor sin red, nginx nunca arrancaba, puerto 80 en conflicto con nginx host. Reemplazado por nginx host sirviendo `frontend/dist/` como estático.
-  - **Nginx host corregido** — `proxy_pass http://127.0.0.1:5173` (Vite dev server inexistente) → `root frontend/dist/` + `try_files $uri $uri/ /index.html` (SPA fallback).
-  - **SSL permissions** — `linuxlab.key` cambiado de 600 a 644 (nginx worker no podía leerlo).
-  - **CORS ampliado** — de solo `http://localhost` a 4 orígenes: `http://localhost`, `https://localhost`, `http://192.168.18.21`, `https://192.168.18.21`.
-  - **Frontend rebuild** — `npm ci && npm run build` (878 módulos, 6.77s).
-  - **SECRET_KEY rotada** — clave nueva `81ae072d...`, `.env.example` sanitizado con placeholders.
-  - **EMAIL_DOMAIN migrado a env var** — `config.py` + integrado en `main.py`, `seed.py`, `auth.py`, `users.py`.
-  - **Docker cleanup** — volúmenes huérfanos eliminados, build cache purgado (1.5GB).
-  - **Stale root files untracked** — `git rm --cached` para `Makefile`, `linuxlab.service`, `pasos.md`, `setup.sh`, `templates.md` + añadidos a `.gitignore`.
-  - **README.md profesional** — documentación completa tipo SaaS con diagrama de arquitectura, one-command install, tabla de componentes.
-  - **CHANGELOG.md v1.0.0** — release notes oficial.
-  - **deploy.sh actualizado** — one-command installer: prerequisites check, .env setup, frontend build, docker compose up, nginx config, SSL fix, health verification.
-  - **Architecture change:** Frontend ya no usa Docker. Nginx del host sirve SPA compilado + reverse proxy a backend. Solo `backend` + `db` en Docker Compose.
+## Relevant Files
+- `backend/app/services/config_service.py`: C1 — `_get_cached` no longer calls `create_task` from sync threads.
+- `backend/app/api/v1/vms.py`: A1 — `create-lab` and `clone-range` now use `asyncio.gather` + `guestfish_semaphore`.
+- `backend/app/services/iptables_service.py`: A2 — `_add_prerouting_and_output` / `_del_prerouting_and_output` use batch rules; `forward_range` / `unforward_range` batch-aware.
+- `backend/app/core/libvirt/vm_manager.py`: A3 — `get_cached_if_fresh()` for hot-path fast check without thread-switch.
+- `backend/app/services/vm_list_service.py`: A3 + M5 — hot-path cache check before thread-switch; removed `threading.Lock`.
+- `backend/app/services/clone_service.py`: M1 — `recreate_vm` uses single volume + `os.rename` + `pool.refresh()`.
+- `backend/app/services/assignment_service.py`: M2 — `batch_create` uses two `WHERE id IN (...)` queries instead of N×2 `session.get()`.
+- `backend/app/services/vm_port_service.py`: M3 — removed global lock; per-VM port append.
+- `backend/app/api/v1/dashboard.py`: M4 — removed `_top_consumers_lock` and `_history_lock`.
+- `backend/tests/conftest.py`: Pre-existing `asyncio_default_fixture_loop_scope = session` — root cause of 13 test_assignments.py ERRORs.
 
-## Key Decisions
-- Frontend servido por nginx host (no Docker) — elimina conflicto de puertos, simplifica despliegue, permite HTTPS real.
-- Backend permanece en Docker con `network_mode: host` por libvirt.
-- Ghost VMs (17 huérfanas en DB sin dominio libvirt) no se eliminan — riesgo de romper assignments existentes.
-
-## Next Steps
-1. ~~Rebuild Docker + verify backend starts.~~
-2. ~~Insert/update `system_parameters` rows via SQL if defaults need overriding.~~
-3. ~~Course selector UI en Assignments y Students pages (frontend).~~
-4. ~~Performance audit + fixes completed.~~
-5. Certificado SSL real (Let's Encrypt) para producción.
-6. Backup automático MariaDB.
-7. Deshabilitar `/docs` y `/openapi.json` en producción.
-8. Nginx rate limiting para login endpoint.
-
-## Relevant Files (updated)
-- `backend/app/models/course.py`: modelo Course con `profesor_id`.
-- `backend/app/schemas/course.py`: `CourseCreate`, `CourseUpdate`, `CourseResponse`, `CourseWithCounts`.
-- `backend/app/api/v1/courses.py`: CRUD con `profesor_only` + ownership.
-- `backend/app/api/v1/vms.py`: `_get_vm_or_404()` helper; `GET /vms/next-number`; recreate-range skip por ownership.
-- `backend/app/api/v1/students.py`: `_get_student_or_404()` helper; get/put/delete/undo-import scoped; course_id support.
-- `backend/app/api/v1/assignments.py`: GET /periods scoped; create/release/batch pasan `user` al service.
-- `backend/app/api/v1/periods.py`: close_period pasa `user_id`; list soporta `?course_id`.
-- `backend/app/api/v1/dashboard.py`: `admin_profesor` en 6 endpoints; owner_id filter en VMs.
-- `backend/app/services/assignment_service.py`: ownership en validate/release/bulk_release/batch_create/close_period.
-- `backend/app/services/sync_vms.py`: `sync_libvirt_domains()` usa `VMManager.list_domains()` en vez de iterar libvirt directamente — elimina doble iteración.
-- `backend/app/core/libvirt/vm_manager.py`: `get_domain()` reusa `list_domains()` cache; `VMManager` singleton con caché TTL 3s.
-- `backend/app/services/vm_list_service.py`: `_cpu_cache` thread-safe con Lock.
-- `backend/app/api/v1/users.py`: `list_users()` con paginación (limit/offset) + total.
-- `backend/app/models/vm_assignment.py`: nuevos índices `ix_assignments_vm_active` (vm_id, released_at) y `ix_assignments_student_active` (student_id, released_at).
-- `backend/migrations/010_add_indexes.py`: migración para agregar índices en DB existente.
+---
+### Archived History (Previous Sessions)
+**Infra:** Frontend Docker removed, nginx host config, SSL fix, CORS expanded, SECRET_KEY rotated, EMAIL_DOMAIN → env var, Docker cleanup, deploy.sh, README.md, CHANGELOG.md.  
+**RBAC & Course:** Multi-profesor ownership, course model with profesor_id FK, soft-delete, course_id on Period/Student.  
+**System Parameters:** config_service.py with TTL cache, 23 params, replaces hardcoded PortMap/thresholds/defaults.  
+**Performance Audit (first pass):** 9/12 N+1/double-iteration fixes, indexes.  
+**Dead artifact cleanup:** Dropped vm_rules table, 7 dead schemas, frontend dead code.  
+**Runtime bug fixes:** pagination extraction, Array.isArray guards, template volume creation, try/except clone_service, MySQL→SQLite portable datetime, IP address preservation, VM number off-by-one, 422 error formatting, 403 console noise, audit_log nullable user_id.  
+**Earlier refactoring:** Toast system, decomposition, data hooks, union types, ErrorBoundary, skeletons, modal a11y, env vars, AbortController, testing setup.

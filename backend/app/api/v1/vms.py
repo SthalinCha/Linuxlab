@@ -5,11 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database.session import get_session
+from app.database.session import get_session, async_session
 from app.models import VirtualMachine, VMAssignment, VMTemplate
 from app.core.security import get_current_user
 from app.models import User
-from app.core.libvirt.vm_manager import VMManager
+from app.core.libvirt.vm_manager import get_manager as get_vm_manager
 from app.services.clone_service import CloneService, mac_from_num, _customize_guest
 from app.services.vm_service import build_ports
 from app.services.iptables_service import forward_port, unforward_port, forward_range, unforward_range
@@ -32,8 +32,30 @@ from app.schemas.vm_template import VMTemplateResponse
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-vm_manager = VMManager()
+vm_manager = get_vm_manager()
 clone_service = CloneService()
+
+_clone_semaphore = asyncio.Semaphore(3)
+
+
+async def _clone_vm_task(
+    num: int, *,
+    template_name: str | None = None,
+    vcpus: int | None = None,
+    ram_mb: int | None = None,
+    prefix: str = "vhost",
+    username: str = "",
+    ip_address: str = "",
+    owner_id: int | None = None,
+) -> dict:
+    async with _clone_semaphore:
+        async with async_session() as task_session:
+            r = await _create_single_vm(
+                task_session, clone_service, num,
+                template_name=template_name, vcpus=vcpus, ram_mb=ram_mb,
+                prefix=prefix, username=username, ip_address=ip_address, owner_id=owner_id,
+            )
+    return {"number": num, "name": r["name"], "status": r["status"], "reason": r["reason"]}
 
 
 def _ip_from_request(request: Request) -> str:
@@ -56,14 +78,14 @@ async def _get_vm_or_404(session: AsyncSession, vm_id: int, user: User) -> Virtu
 
 async def _auto_iptables(num: int):
     try:
-        await asyncio.to_thread(forward_range, num, num)
+        await forward_range(num, num)
     except Exception as e:
         logger.warning("Error configurando iptables para VM %s: %s", num, e)
 
 
 async def _auto_uniptables(num: int):
     try:
-        await asyncio.to_thread(unforward_range, num, num)
+        await unforward_range(num, num)
     except Exception as e:
         logger.warning("Error eliminando iptables para VM %s: %s", num, e)
 
@@ -116,8 +138,7 @@ async def _create_single_vm(
     if existing_vm and existing_vm.deleted_at is None:
         return {"vm": None, "status": "skipped", "reason": "ya existe", "name": name, "number": num}
 
-    r = await asyncio.to_thread(
-        clone_service.clone_vm,
+    r = await clone_service.clone_vm(
         source_name=tpl,
         new_name=name,
         new_mac=mac,
@@ -175,7 +196,6 @@ async def list_vms(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    await sync_libvirt_domains(session)
     result = await list_vms_service(session, vm_manager, state, include_templates, limit, offset, user)
     items = []
     for vm in result["items"]:
@@ -352,7 +372,9 @@ async def clone_vm(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=r["reason"])
     vm = r["vm"]
     resp = VirtualMachineResponse.model_validate(vm)
-    resp.owner_name = vm.owner.full_name if vm.owner else None
+    if vm.owner_id is not None:
+        await session.refresh(vm, ["owner"])
+        resp.owner_name = vm.owner.full_name if vm.owner else None
     return resp
 
 
@@ -366,10 +388,9 @@ async def clone_vm_range(
     if body.from_number < 1 or body.to_number > 254 or body.from_number > body.to_number:
         raise HTTPException(status_code=422, detail="Rango inválido (1-254, from <= to)")
 
-    results = []
-    for num in range(body.from_number, body.to_number + 1):
-        r = await _create_single_vm(
-            session, clone_service, num,
+    tasks = [
+        _clone_vm_task(
+            num,
             template_name=body.template_name,
             vcpus=body.vcpus,
             ram_mb=body.ram_mb,
@@ -377,9 +398,10 @@ async def clone_vm_range(
             ip_address=_ip_from_request(request),
             owner_id=user.id,
         )
-        results.append({"number": num, "name": r["name"], "status": r["status"], "reason": r["reason"]})
-
-    return results
+        for num in range(body.from_number, body.to_number + 1)
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    return [_r if not isinstance(_r, Exception) else {"number": None, "name": "error", "status": "error", "reason": str(_r)} for _r in results]
 
 
 @router.post("/create-lab")
@@ -394,11 +416,9 @@ async def create_lab(
     if body.start_number < 1 or body.start_number > 254:
         raise HTTPException(status_code=422, detail="Número inicial inválido")
 
-    results = []
-    for i in range(body.count):
-        num = body.start_number + i
-        r = await _create_single_vm(
-            session, clone_service, num,
+    tasks = [
+        _clone_vm_task(
+            body.start_number + i,
             template_name=body.template_name,
             vcpus=body.vcpus,
             ram_mb=body.ram_mb,
@@ -407,9 +427,10 @@ async def create_lab(
             ip_address=_ip_from_request(request),
             owner_id=user.id,
         )
-        results.append({"number": num, "name": r["name"], "status": r["status"], "reason": r["reason"]})
-
-    return results
+        for i in range(body.count)
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    return [_r if not isinstance(_r, Exception) else {"number": None, "name": "error", "status": "error", "reason": str(_r)} for _r in results]
 
 
 @router.post("/{vm_id}/recreate")
@@ -434,8 +455,7 @@ async def recreate_vm(
     _def_template = get_cached_str("default_template", "ubuntu-server-main")
     _def_ram = get_cached_int("default_vm_ram_mb", 4096)
     _def_vcpus = get_cached_int("default_vm_vcpus", 1)
-    r = await asyncio.to_thread(
-        clone_service.recreate_vm,
+    r = await clone_service.recreate_vm(
         vm.name,
         template_name=vm.template_name or _def_template,
         mac_address=vm.mac_address,
@@ -469,39 +489,47 @@ async def recreate_vm_range(
     if body.from_number < 1 or body.to_number > 254 or body.from_number > body.to_number:
         raise HTTPException(status_code=422, detail="Rango inválido (1-254, from <= to)")
 
-    results = []
-    for num in range(body.from_number, body.to_number + 1):
-        name = f"vhost-{num}"
-        result = await session.execute(
-            select(VirtualMachine).where(VirtualMachine.name == name, VirtualMachine.deleted_at.is_(None))
+    names = [f"vhost-{n}" for n in range(body.from_number, body.to_number + 1)]
+    result = await session.execute(
+        select(VirtualMachine).where(
+            VirtualMachine.name.in_(names),
+            VirtualMachine.deleted_at.is_(None),
         )
-        vm = result.scalar_one_or_none()
+    )
+    vm_map = {vm.name: vm for vm in result.scalars().all()}
+
+    async def _recreate_task(num: int) -> dict:
+        name = f"vhost-{num}"
+        vm = vm_map.get(name)
         if not vm:
-            results.append({"number": num, "name": name, "status": "not_found"})
-            continue
-
+            return {"number": num, "name": name, "status": "not_found"}
         if user.role.name == "profesor" and vm.owner_id != user.id:
-            results.append({"number": num, "name": name, "status": "skipped", "reason": "no es tu VM"})
-            continue
+            return {"number": num, "name": name, "status": "skipped", "reason": "no es tu VM"}
 
-        _def_template = get_cached_str("default_template", "ubuntu-server-main")
-        r = await asyncio.to_thread(clone_service.recreate_vm, vm.name, template_name=vm.template_name or _def_template)
-        if not r["success"]:
-            results.append({"number": num, "name": name, "status": "error", "reason": r["error"]})
-            continue
+        async with _clone_semaphore:
+            async with async_session() as task_session:
+                _def_template = get_cached_str("default_template", "ubuntu-server-main")
+                r = await clone_service.recreate_vm(vm.name, template_name=vm.template_name or _def_template)
+                if not r["success"]:
+                    return {"number": num, "name": name, "status": "error", "reason": r["error"]}
 
-        vm.current_state = "shut off"
-        try:
-            vm.ports = build_ports(num)
-        except (ValueError, IndexError):
-            pass
-        await session.commit()
-        await log_event(session, "vm_recreate", user.username,
-                        f"Recreó {vm.name} (rango)",
-                        "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id)
-        results.append({"number": num, "name": name, "status": "recreated"})
+                vm2 = await task_session.get(VirtualMachine, vm.id)
+                if not vm2:
+                    return {"number": num, "name": name, "status": "error", "reason": "VM no encontrada en sesión"}
+                vm2.current_state = "shut off"
+                try:
+                    vm2.ports = build_ports(num)
+                except (ValueError, IndexError):
+                    pass
+                await task_session.commit()
+                await log_event(task_session, "vm_recreate", user.username,
+                                f"Recreó {vm2.name} (rango)",
+                                "vm", vm2.id, ip_address=_ip_from_request(request), user_id=user.id)
+                return {"number": num, "name": name, "status": "recreated"}
 
-    return results
+    tasks = [_recreate_task(n) for n in range(body.from_number, body.to_number + 1)]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    return [_r if not isinstance(_r, Exception) else {"number": None, "name": "error", "status": "error", "reason": str(_r)} for _r in results]
 
 
 @router.delete("/{vm_id}")
@@ -591,6 +619,8 @@ async def remove_port(
     await _get_vm_or_404(session, vm_id, user)
     result = await remove_port_from_vm(session, vm_id, port_index,
                                        user.username, _ip_from_request(request), user_id=user.id)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Puerto no encontrado")
     resp = VirtualMachineResponse.model_validate(result)
     resp.owner_name = result.owner.full_name if result.owner else None
     return resp
@@ -625,23 +655,33 @@ async def repair_vms(
         query = query.where(VirtualMachine.owner_id == user.id)
     result = await session.execute(query)
     vms = result.scalars().all()
-    repaired = []
-    errors = []
-    for vm in vms:
+
+    from app.services.libvirt_network import ensure_dhcp_host, dhcp_host_exists
+
+    async def _repair_one(vm: VirtualMachine) -> dict:
         if vm.current_state != "shut off":
-            continue
+            return {"name": vm.name, "status": "skipped"}
         vol_path = f"/var/lib/libvirt/images/{vm.name}.qcow2"
-        _customize_guest(vol_path, vm.name, initramfs=True)
+        await _customize_guest(vol_path, vm.name, initramfs=True)
         if vm.mac_address and vm.ip_address:
-            from app.services.libvirt_network import ensure_dhcp_host, dhcp_host_exists
             if not dhcp_host_exists(vm.mac_address):
                 try:
                     ensure_dhcp_host(vm.name, vm.mac_address, vm.ip_address)
-                    repaired.append(vm.name)
                 except Exception as e:
-                    errors.append({"vm": vm.name, "error": str(e)})
-            else:
-                repaired.append(f"{vm.name} (DHCP ya existe)")
+                    return {"name": vm.name, "error": str(e), "status": "error"}
+        return {"name": vm.name, "status": "ok"}
+
+    tasks = [_repair_one(vm) for vm in vms]
+    raw = await asyncio.gather(*tasks, return_exceptions=True)
+    repaired = []
+    errors = []
+    for r in raw:
+        if isinstance(r, Exception):
+            errors.append({"vm": "unknown", "error": str(r)})
+        elif r["status"] == "ok":
+            repaired.append(r["name"])
+        elif r["status"] == "error":
+            errors.append({"vm": r["name"], "error": r["error"]})
     await log_event(session, "vms_repair", user.username,
                     f"Reparación masiva: {len(repaired)} ok, {len(errors)} errores",
                     ip_address=_ip_from_request(request), user_id=user.id)

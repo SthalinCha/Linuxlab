@@ -29,7 +29,7 @@ async def get_rules(    user: User = Depends(admin_profesor)):
 async def forward(body: RangeRequest,     user: User = Depends(admin_only)):
     if body.from_number < 1 or body.to_number > 254 or body.from_number > body.to_number:
         raise HTTPException(status_code=422, detail="Rango inválido (1-254, from <= to)")
-    result = forward_range(body.from_number, body.to_number)
+    result = await forward_range(body.from_number, body.to_number)
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result["stderr"] or "Error al añadir reglas")
     return result
@@ -39,7 +39,7 @@ async def forward(body: RangeRequest,     user: User = Depends(admin_only)):
 async def unforward(body: RangeRequest,     user: User = Depends(admin_only)):
     if body.from_number < 1 or body.to_number > 254 or body.from_number > body.to_number:
         raise HTTPException(status_code=422, detail="Rango inválido (1-254, from <= to)")
-    result = unforward_range(body.from_number, body.to_number)
+    result = await unforward_range(body.from_number, body.to_number)
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result["stderr"] or "Error al eliminar reglas")
     return result

@@ -2,8 +2,8 @@ import pytest
 
 
 class TestAudit:
-    async def test_audit_log_list(self, auth_client):
-        resp = await auth_client.get("/api/v1/audit")
+    async def test_audit_log_list(self, admin_client):
+        resp = await admin_client.get("/api/v1/audit")
         assert resp.status_code == 200
         data = resp.json()
         assert "items" in data

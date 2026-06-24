@@ -73,8 +73,8 @@ class TestRateLimit:
 
 
 class TestAuthRegister:
-    async def test_register_success(self, auth_client):
-        resp = await auth_client.post("/api/v1/auth/register", json={
+    async def test_register_success(self, admin_client):
+        resp = await admin_client.post("/api/v1/auth/register", json={
             "username": "newuser",
             "password": "testpass123",
             "full_name": "New User",
@@ -83,16 +83,16 @@ class TestAuthRegister:
         data = resp.json()
         assert data["username"] == "newuser"
 
-    async def test_register_duplicate_username(self, auth_client):
-        resp = await auth_client.post("/api/v1/auth/register", json={
+    async def test_register_duplicate_username(self, admin_client):
+        resp = await admin_client.post("/api/v1/auth/register", json={
             "username": "admin",
             "password": "testpass123",
             "full_name": "Duplicate",
         })
         assert resp.status_code == 409
 
-    async def test_register_short_password(self, auth_client):
-        resp = await auth_client.post("/api/v1/auth/register", json={
+    async def test_register_short_password(self, admin_client):
+        resp = await admin_client.post("/api/v1/auth/register", json={
             "username": "user2",
             "password": "short12",
             "full_name": "User 2",
@@ -109,7 +109,7 @@ class TestAuthRegister:
 class TestChangePassword:
     async def test_change_password_success(self, auth_client):
         resp = await auth_client.post("/api/v1/auth/change-password", json={
-            "current_password": "linuxlab",
+            "current_password": "password123",
             "new_password": "newpass12345",
         })
         assert resp.status_code == 200
@@ -125,7 +125,7 @@ class TestChangePassword:
 
     async def test_change_password_short_new(self, auth_client):
         resp = await auth_client.post("/api/v1/auth/change-password", json={
-            "current_password": "linuxlab",
+            "current_password": "password123",
             "new_password": "short12",
         })
         assert resp.status_code == 422

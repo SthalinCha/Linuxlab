@@ -43,8 +43,8 @@ async def sync_libvirt_domains(session: AsyncSession, setup_iptables: bool = Fal
         return 0, 0
     _sync_cache_time = now
 
-    from app.core.libvirt.vm_manager import VMManager
-    mgr = VMManager()
+    from app.core.libvirt.vm_manager import get_manager
+    mgr = get_manager()
     domains = mgr.list_domains()
     conn = get_connection()
     synced = 0
@@ -159,7 +159,7 @@ async def sync_libvirt_domains(session: AsyncSession, setup_iptables: bool = Fal
             try:
                 num = int(vm_name.split("-")[-1])
                 from app.services.iptables_service import forward_range
-                forward_range(num, num)
+                await forward_range(num, num)
                 logger.info("Reglas iptables restauradas para %s", vm_name)
             except (ValueError, IndexError):
                 logger.debug("No se pudo extraer número de VM %s para iptables", vm_name)

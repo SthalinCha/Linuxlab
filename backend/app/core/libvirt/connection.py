@@ -1,5 +1,7 @@
 import logging
 import os
+import threading
+import time
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -15,22 +17,59 @@ except ImportError:
     logger.warning("libvirt no disponible ")
 
 _conn: Optional[object] = None
+_conn_lock = threading.Lock()
+_last_health_check: float = 0
+_HEALTH_CHECK_INTERVAL = 5.0
+
+
+def _is_connection_alive(conn: object) -> bool:
+    global _last_health_check
+    now = time.time()
+    if now - _last_health_check < _HEALTH_CHECK_INTERVAL:
+        return True
+    _last_health_check = now
+    if not HAVE_LIBVIRT:
+        return True
+    try:
+        conn.getURI()
+        conn.getLibVersion()
+        return True
+    except libvirt.libvirtError:
+        return False
+    except AttributeError:
+        return True
 
 
 def get_connection() -> object:
     global _conn
     if not HAVE_LIBVIRT:
         return DummyConnection()
-    if _conn is None:
+
+    with _conn_lock:
+        if _conn is not None:
+            if _is_connection_alive(_conn):
+                return _conn
+            logger.warning("Conexión libvirt obsoleta, reconectando...")
+            try:
+                _conn.close()
+            except Exception:
+                pass
+            _conn = None
+
         logger.info("Conectando a libvirt (%s)", LIBVIRT_URI)
         _conn = libvirt.open(LIBVIRT_URI)
-    return _conn
+        if _conn is None:
+            raise RuntimeError("No se pudo abrir conexión a libvirt")
+        return _conn
 
 
 def close_connection():
     global _conn
     if HAVE_LIBVIRT and _conn:
-        _conn.close()
+        try:
+            _conn.close()
+        except Exception:
+            pass
         _conn = None
 
 
@@ -89,6 +128,9 @@ class DummyConnection:
     def getHostname(self):
         import socket
         return socket.gethostname()
+
+    def listAllDomains(self, flags=0):
+        return []
 
     def listDefinedDomains(self):
         return []

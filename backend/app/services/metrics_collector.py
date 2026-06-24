@@ -117,8 +117,8 @@ class MetricsCollector:
             if self._vm_stats_cache is not None and now - self._vm_stats_cache_time < _VM_STATS_CACHE_TTL:
                 return dict(self._vm_stats_cache)
 
-        from app.core.libvirt.vm_manager import VMManager
-        mgr = VMManager()
+        from app.core.libvirt.vm_manager import get_manager
+        mgr = get_manager()
         domains = mgr.list_domains()
         conn = get_connection()
         stats = []

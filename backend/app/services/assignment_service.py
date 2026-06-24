@@ -288,9 +288,27 @@ async def batch_create(
 ) -> dict:
     created = []
     errors = []
+
+    vm_ids = list({item.vm_id for item in items if item.vm_id})
+    student_ids = list({item.student_id for item in items})
+
+    vm_map: dict[int, VirtualMachine] = {}
+    if vm_ids:
+        result = await session.execute(
+            select(VirtualMachine).where(VirtualMachine.id.in_(vm_ids))
+        )
+        vm_map = {vm.id: vm for vm in result.scalars().all()}
+
+    student_map: dict[int, Student] = {}
+    if student_ids:
+        result = await session.execute(
+            select(Student).where(Student.id.in_(student_ids))
+        )
+        student_map = {s.id: s for s in result.scalars().all()}
+
     for item in items:
-        vm = await session.get(VirtualMachine, item.vm_id)
-        student = await session.get(Student, item.student_id)
+        vm = vm_map.get(item.vm_id)
+        student = student_map.get(item.student_id)
         if not vm or not student:
             errors.append({
                 "vm_id": item.vm_id,

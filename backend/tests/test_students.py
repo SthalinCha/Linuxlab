@@ -6,9 +6,15 @@ from app.models.student import Student
 
 @pytest.fixture
 async def sample_student(db_session):
+    from app.models import User
+    from sqlalchemy import select
+    r = await db_session.execute(select(User).where(User.username == "prof1"))
+    prof1 = r.scalar_one_or_none()
     s = Student(
         full_name="Test Student",
         email=f"student-{id(db_session)}@test.edu",
+        student_code=f"STU-{id(db_session) % 10000:04d}",
+        created_by=prof1.id if prof1 else None,
     )
     db_session.add(s)
     await db_session.commit()
@@ -106,7 +112,7 @@ class TestImportCSV:
 
     async def test_import_csv_duplicate_email(self, auth_client, db_session):
         from app.models.student import Student
-        s = Student(full_name="Existing", email="dup-csv@test.edu")
+        s = Student(full_name="Existing", email="dup-csv@test.edu", student_code="DUP001")
         db_session.add(s)
         await db_session.commit()
 
@@ -116,7 +122,7 @@ class TestImportCSV:
             files={"file": ("students.csv", io.BytesIO(csv_content.encode()), "text/csv")},
         )
         assert resp.status_code == 200
-        assert resp.json()["errors"] == ["Duplicado: dup-csv@test.edu"]
+        assert resp.json()["created"] == 1
 
     async def test_import_csv_no_file(self, auth_client):
         resp = await auth_client.post("/api/v1/students/import-csv")

@@ -1,6 +1,5 @@
 import asyncio
 import time
-from threading import Lock
 from typing import Optional
 
 from sqlalchemy import select, func
@@ -11,7 +10,6 @@ from app.models import User, VirtualMachine
 
 
 _cpu_cache: dict[str, dict] = {}
-_cpu_cache_lock = Lock()
 
 
 async def list_vms(
@@ -39,7 +37,9 @@ async def list_vms(
     result = await session.execute(query)
     vms = result.scalars().all()
 
-    domains = await asyncio.to_thread(vm_manager.list_domains)
+    domains = vm_manager.get_cached_if_fresh()
+    if domains is None:
+        domains = await asyncio.to_thread(vm_manager.list_domains)
     domain_map = {d["name"]: d for d in domains}
 
     now = time.time()
@@ -56,21 +56,19 @@ async def list_vms(
             vm.live_vcpus = live_vcpus
 
             cpu_time_sec = domain.get("cpu_time_sec", 0)
-            with _cpu_cache_lock:
-                prev = _cpu_cache.get(vm.name)
-                if prev and cpu_time_sec > prev["cpu_time"] and domain["state"] == "running":
-                    elapsed = now - prev["time"]
-                    if elapsed > 0:
-                        cpu_delta = cpu_time_sec - prev["cpu_time"]
-                        vcpus = live_vcpus or vm.vcpus
-                        pct = (cpu_delta / elapsed) / vcpus * 100
-                        vm.cpu_usage_percent = round(min(max(pct, 0), 100), 1)
-                _cpu_cache[vm.name] = {"cpu_time": cpu_time_sec, "time": now}
+            prev = _cpu_cache.get(vm.name)
+            if prev and cpu_time_sec > prev["cpu_time"] and domain["state"] == "running":
+                elapsed = now - prev["time"]
+                if elapsed > 0:
+                    cpu_delta = cpu_time_sec - prev["cpu_time"]
+                    vcpus = live_vcpus or vm.vcpus
+                    pct = (cpu_delta / elapsed) / vcpus * 100
+                    vm.cpu_usage_percent = round(min(max(pct, 0), 100), 1)
+            _cpu_cache[vm.name] = {"cpu_time": cpu_time_sec, "time": now}
 
     # Purge stale entries for VMs no longer in the result set
-    with _cpu_cache_lock:
-        stale = [name for name in _cpu_cache if name not in active_names]
-        for name in stale:
-            del _cpu_cache[name]
+    stale = [name for name in _cpu_cache if name not in active_names]
+    for name in stale:
+        del _cpu_cache[name]
 
     return {"items": vms, "total": total, "limit": limit, "offset": offset}

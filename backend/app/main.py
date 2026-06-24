@@ -61,12 +61,17 @@ _background_task: asyncio.Task | None = None
 
 @app.on_event("startup")
 async def startup():
-    from app.services.config_service import load_config
+    from app.services.config_service import load_config, start_config_refresh
     await load_config()
+    await start_config_refresh()
 
     global _background_task
     metrics_interval = get_cached_int("metrics_interval", 300)
     _background_task = asyncio.create_task(collector.start_background_collection(interval=metrics_interval))
+
+    from app.services.sync_task import start_background_sync
+    await start_background_sync()
+
     logger.info("Inicio completado")
 
 
@@ -76,6 +81,12 @@ async def shutdown():
     if _background_task:
         _background_task.cancel()
         logger.info("Tarea de métricas cancelada")
+
+    from app.services.sync_task import _sync_task
+    if _sync_task:
+        _sync_task.cancel()
+        logger.info("Tarea de sync cancelada")
+
     from app.core.libvirt.connection import close_connection
     close_connection()
     await engine.dispose()

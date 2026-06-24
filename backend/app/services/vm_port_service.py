@@ -18,17 +18,17 @@ _port_lock = asyncio.Lock()
 
 async def add_port_to_vm(session: AsyncSession, vm_id: int, service: str, port: int,
                          username: str, ip_address: str, user_id: int | None = None) -> dict | None:
+    result = await session.execute(
+        select(VirtualMachine).options(selectinload(VirtualMachine.owner))
+        .where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
+    )
+    vm = result.scalar_one_or_none()
+    if not vm:
+        return None
+
+    ports = list(vm.ports) if vm.ports else []
+
     async with _port_lock:
-        result = await session.execute(
-            select(VirtualMachine).options(selectinload(VirtualMachine.owner))
-            .where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
-        )
-        vm = result.scalar_one_or_none()
-        if not vm:
-            return None
-
-        ports = list(vm.ports) if vm.ports else []
-
         used_host_ports = set()
         result = await session.execute(
             select(VirtualMachine.ports).where(
@@ -36,9 +36,9 @@ async def add_port_to_vm(session: AsyncSession, vm_id: int, service: str, port: 
                 VirtualMachine.ports.isnot(None),
             )
         )
-        for ports in result.scalars().all():
-            if ports:
-                for p in ports:
+        for ports_row in result.scalars().all():
+            if ports_row:
+                for p in ports_row:
                     used_host_ports.add(p["host"])
 
         next_host = 10000

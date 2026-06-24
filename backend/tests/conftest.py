@@ -49,6 +49,15 @@ async def setup_db():
             role_id=admin_role.id,
         )
         session.add(admin)
+
+        prof1 = User(
+            username="prof1",
+            password_hash=hash_password("password123"),
+            full_name="Profesor Uno",
+            email="prof1@linuxlab.local",
+            role_id=profesor_role.id,
+        )
+        session.add(prof1)
         await session.commit()
     yield
     async with engine.begin() as conn:
@@ -100,6 +109,13 @@ async def client(setup_db, mock_iptables):
 
 @pytest_asyncio.fixture
 async def auth_client(client, db_session):
+    token = create_access_token({"sub": "prof1"})
+    client.headers["Authorization"] = f"Bearer {token}"
+    return client
+
+
+@pytest_asyncio.fixture
+async def admin_client(client, db_session):
     token = create_access_token({"sub": "admin"})
     client.headers["Authorization"] = f"Bearer {token}"
     return client

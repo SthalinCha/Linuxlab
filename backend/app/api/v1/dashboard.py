@@ -26,9 +26,6 @@ from app.core.dates import utc_iso
 
 router = APIRouter()
 
-_top_consumers_lock = asyncio.Lock()
-_history_lock = asyncio.Lock()
-
 
 def _compute_alerts_count(host: dict, crashed_vm_count: int) -> int:
     count = 0
@@ -121,8 +118,7 @@ async def get_dashboard_history(
     user: User = Depends(admin_profesor),
     session: AsyncSession = Depends(get_session),
 ):
-    async with _history_lock:
-        history = await collector.get_history(session)
+    history = await collector.get_history(session)
 
     return {
         "cpu_history": [CpuHistoryPoint(**p) for p in history["cpu_history"]],
@@ -177,8 +173,7 @@ async def get_top_consumers(
     template_result = await session.execute(select(VMTemplate.name))
     template_names = {row[0] for row in template_result}
     from functools import partial
-    async with _top_consumers_lock:
-        stats = await asyncio.to_thread(partial(collector.get_vm_stats, exclude_names=template_names))
+    stats = await asyncio.to_thread(partial(collector.get_vm_stats, exclude_names=template_names))
     if user.role.name == "profesor":
         result = await session.execute(
             select(VirtualMachine.name).where(
