@@ -14,6 +14,10 @@ from app.core.dates import utc_iso
 logger = logging.getLogger(__name__)
 
 
+_VM_STATS_CACHE_TTL = 30
+_HISTORY_CACHE_TTL = 60
+
+
 class MetricsCollector:
     def __init__(self):
         self.cpu_history = deque(maxlen=288)
@@ -21,10 +25,16 @@ class MetricsCollector:
         self.disk_history = deque(maxlen=288)
         self._lock = Lock()
         self._vm_cpu_cache: dict[str, dict] = {}
+        self._vm_stats_cache: dict | None = None
+        self._vm_stats_cache_time: float = 0
+        self._vm_stats_lock = Lock()
+        self._history_cache: dict | None = None
+        self._history_cache_time: float = 0
 
     async def collect(self):
         cpu = psutil.cpu_percent(interval=0)
-        ram = psutil.virtual_memory().percent
+        mem = psutil.virtual_memory()
+        ram = mem.percent
         disk = psutil.disk_usage("/").percent
         now = time.time()
 
@@ -32,6 +42,7 @@ class MetricsCollector:
             self.cpu_history.append({"time": now, "cpu": round(cpu, 1)})
             self.ram_history.append({"time": now, "ram": round(ram, 1)})
             self.disk_history.append({"time": now, "disk": round(disk, 1)})
+            self._history_cache = None
 
         try:
             async with async_session() as session:
@@ -56,6 +67,10 @@ class MetricsCollector:
             await self.collect()
 
     async def get_history(self, session=None):
+        with self._lock:
+            if self._history_cache is not None and time.time() - self._history_cache_time < _HISTORY_CACHE_TTL:
+                return dict(self._history_cache)
+
         if session is not None:
             result = await session.execute(
                 select(HostMetric).order_by(HostMetric.timestamp.desc()).limit(288)
@@ -71,7 +86,11 @@ class MetricsCollector:
                     {"time": utc_iso(r.timestamp), "ram": round(r.ram_percent, 1)}
                     for r in rows
                 ]
-                return {"cpu_history": cpu, "ram_history": ram}
+                cached = {"cpu_history": cpu, "ram_history": ram}
+                with self._lock:
+                    self._history_cache = cached
+                    self._history_cache_time = time.time()
+                return cached
 
         with self._lock:
             cpu = [{"time": utc_iso(datetime.fromtimestamp(p["time"], tz=timezone.utc)), "cpu": p["cpu"]} for p in self.cpu_history]
@@ -83,81 +102,71 @@ class MetricsCollector:
             t = utc_iso(datetime.fromtimestamp(now, tz=timezone.utc))
             cpu = [{"time": t, "cpu": round(c, 1)}]
             ram = [{"time": t, "ram": round(r, 1)}]
-        return {"cpu_history": cpu, "ram_history": ram}
+        cached = {"cpu_history": cpu, "ram_history": ram}
+        with self._lock:
+            self._history_cache = cached
+            self._history_cache_time = time.time()
+        return cached
 
-    def get_vm_stats(self):
+    def get_vm_stats(self, exclude_names: set | None = None):
         if not HAVE_LIBVIRT:
             return {"top_cpu": [], "top_ram": []}
 
-        conn = get_connection()
-        seen = set()
-        stats = []
         now = time.time()
+        with self._vm_stats_lock:
+            if self._vm_stats_cache is not None and now - self._vm_stats_cache_time < _VM_STATS_CACHE_TTL:
+                return dict(self._vm_stats_cache)
 
-        def _is_vm(name):
-            return not ("template" in name.lower() or name == "ubuntu-server-main")
+        from app.core.libvirt.vm_manager import VMManager
+        mgr = VMManager()
+        domains = mgr.list_domains()
+        conn = get_connection()
+        stats = []
 
-        def _read_cpu_time_sec(dom) -> float:
-            try:
-                raw = dom.getCPUStats(total=True)
-                if raw and len(raw) > 0:
-                    return raw[0].get("cpu_time", 0) / 1e9
-            except Exception as e:
-                logger.debug("getCPUStats falló para %s: %s", dom.name(), e)
-            return 0.0
-
-        for domain_id in conn.listDomainsID():
-            try:
-                dom = conn.lookupByID(domain_id)
-                name = dom.name()
-                if not _is_vm(name) or name in seen:
-                    continue
-                seen.add(name)
-                state, max_mem, mem, vcpus, cpu_time = dom.info()
-                cpu_time_sec = _read_cpu_time_sec(dom)
-
-                cpu_percent = 0.0
-                prev = self._vm_cpu_cache.get(name)
-                if prev and cpu_time_sec > prev["cpu_time"]:
-                    elapsed = now - prev["time"]
-                    if elapsed > 0 and vcpus > 0:
-                        cpu_delta = cpu_time_sec - prev["cpu_time"]
-                        pct = (cpu_delta / elapsed) / vcpus * 100
-                        cpu_percent = round(min(max(pct, 0), 100), 1)
-                self._vm_cpu_cache[name] = {"cpu_time": cpu_time_sec, "time": now}
-
-                ram_used_gb = round(mem / (1024 * 1024), 1) if mem else 0
-
-                stats.append({
-                    "name": name,
-                    "cpu_percent": cpu_percent,
-                    "ram_gb": ram_used_gb,
-                })
-            except Exception as e:
-                logger.warning("Error leyendo domain activo: %s", e)
+        for dom_data in domains:
+            name = dom_data["name"]
+            if exclude_names and name in exclude_names:
                 continue
 
-        for name in conn.listDefinedDomains():
-            try:
-                if not _is_vm(name) or name in seen:
-                    continue
-                seen.add(name)
-                stats.append({
-                    "name": name,
-                    "cpu_percent": 0.0,
-                    "ram_gb": 0.0,
-                })
-            except Exception as e:
-                logger.warning("Error leyendo domain definido %s: %s", name, e)
-                continue
+            state = dom_data["state"]
+            vcpus = dom_data.get("vcpus", 0)
+            ram_used_mb = dom_data.get("ram_used_mb", 0)
+            ram_rss_mb = dom_data.get("ram_rss_mb", 0)
+
+            cpu_percent = 0.0
+            if state == "running":
+                try:
+                    dom = conn.lookupByName(name)
+                    raw = dom.getCPUStats(total=True)
+                    if raw and len(raw) > 0:
+                        cpu_time_sec = raw[0].get("cpu_time", 0) / 1e9
+                        prev = self._vm_cpu_cache.get(name)
+                        if prev and cpu_time_sec > prev["cpu_time"]:
+                            elapsed = now - prev["time"]
+                            if elapsed > 0 and vcpus > 0:
+                                cpu_delta = cpu_time_sec - prev["cpu_time"]
+                                pct = (cpu_delta / elapsed) / vcpus * 100
+                                cpu_percent = round(min(max(pct, 0), 100), 1)
+                        self._vm_cpu_cache[name] = {"cpu_time": cpu_time_sec, "time": now}
+                except Exception as e:
+                    logger.debug("getCPUStats falló para %s: %s", name, e)
+
+            ram_gb = 0.0
+            if state == "running":
+                ram_gb = round(ram_rss_mb / 1024, 1) if ram_rss_mb else round(ram_used_mb / 1024, 1) if ram_used_mb else 0
+            stats.append({"name": name, "cpu_percent": cpu_percent, "ram_gb": ram_gb})
 
         top_cpu = sorted(stats, key=lambda x: x["cpu_percent"], reverse=True)[:5]
         top_ram = sorted(stats, key=lambda x: x["ram_gb"], reverse=True)[:5]
 
-        return {
+        result = {
             "top_cpu": [{"name": s["name"], "cpu_percent": s["cpu_percent"]} for s in top_cpu],
             "top_ram": [{"name": s["name"], "ram_gb": s["ram_gb"]} for s in top_ram],
         }
+        with self._vm_stats_lock:
+            self._vm_stats_cache = result
+            self._vm_stats_cache_time = now
+        return result
 
 
 collector = MetricsCollector()

@@ -12,6 +12,9 @@ export interface VMDisplay {
   diskAlloc: number
   cpuUsage: number
   ramUsage: number
+  ramRssMb?: number
+  ramMaxMb?: number
+  templateName?: string
   ownerName?: string
 }
 
@@ -34,6 +37,7 @@ export interface VirtualMachine {
   current_state: VMState
   ports?: Port[]
   ram_used_mb?: number
+  ram_rss_mb?: number
   ram_percent?: number
   live_vcpus?: number
   max_ram_mb?: number

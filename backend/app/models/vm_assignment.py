@@ -42,6 +42,8 @@ class VMAssignment(BaseModel):
         Index("ix_assignments_active", "period_id", "student_id", "released_at"),
         Index("ix_assignments_recreated_by", "last_recreated_by"),
         Index("ix_assignments_period_active", "period_id", "released_at"),
+        Index("ix_assignments_vm_active", "vm_id", "released_at"),
+        Index("ix_assignments_student_active", "student_id", "released_at"),
     )
 
     @property

@@ -1,6 +1,12 @@
 import type { VMDisplay } from '../types'
 import IconButton from './IconButton'
+import Gauge from './Gauge'
 import { TableSkeleton } from './Skeleton'
+
+function shortTemplate(name: string | undefined): string {
+  if (!name) return '—'
+  return name.replace(/[-_].*$/, '')
+}
 
 interface Props {
   filteredVms: VMDisplay[]
@@ -8,7 +14,6 @@ interface Props {
   loading: boolean
   error: string | null
   isAdmin: boolean
-  barColor: (pct: number) => string
   openMenu: number | null
   onToggleSelect: (id: number) => void
   onToggleSelectAll: () => void
@@ -21,7 +26,7 @@ interface Props {
 }
 
 export default function VMTable({
-  filteredVms, selectedIds, loading, error, isAdmin, barColor, openMenu,
+  filteredVms, selectedIds, loading, error, isAdmin, openMenu,
   onToggleSelect, onToggleSelectAll, onAction, onDelete, onDestroy,
   onRecreate, onTerminal, onMenuOpen,
 }: Props) {
@@ -49,84 +54,75 @@ export default function VMTable({
 
   return (
     <div className="bg-white rounded-xl border border-slate-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 bg-slate-50">
-              {isAdmin && (
-                <th className="text-left px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Profesor</th>
-              )}
-              <th className="px-4 py-3.5 w-10">
-                <input
-                  type="checkbox"
-                  checked={filteredVms.length > 0 && selectedIds.size === filteredVms.length}
-                  onChange={onToggleSelectAll}
-                  className="rounded border-slate-300"
-                />
-              </th>
-              <th className="text-left px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Estado</th>
-              <th className="text-left px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Nombre</th>
-              <th className="text-left px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">IP</th>
-              <th className="text-left px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">MAC</th>
-              <th className="text-left px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">CPU</th>
-              <th className="text-left px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">RAM</th>
-              <th className="text-left px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Disco</th>
-              <th className="text-left px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Uso CPU</th>
-              <th className="text-left px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Uso RAM</th>
-              <th className="text-left px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Acciones</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {filteredVms.map(vm => {
-              const isRunning = vm.status === 'running'
-              return (
-                <tr
-                  key={vm.id}
-                  className={`hover:bg-slate-50 transition-colors ${selectedIds.has(vm.id) ? 'bg-sky-50' : ''}`}
-                >
-                  {isAdmin && (
-                    <td className="px-4 py-3 text-xs text-slate-600">{vm.ownerName || '—'}</td>
-                  )}
-                  <td className="px-4 py-3">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(vm.id)}
-                      onChange={() => onToggleSelect(vm.id)}
-                      className="rounded border-slate-300"
-                    />
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2.5 h-2.5 rounded-full inline-block ${isRunning ? 'bg-emerald-500 animate-pulse' : 'bg-red-400'}`} />
-                      <span className={`text-xs font-medium ${isRunning ? 'text-emerald-700' : 'text-red-600'}`}>
-                        {isRunning ? 'Encendida' : 'Apagada'}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-800">{vm.name}</td>
-                  <td className="px-4 py-3 text-slate-500 font-mono text-xs">{vm.ip || '-'}</td>
-                  <td className="px-4 py-3 text-slate-500 font-mono text-xs">{vm.mac}</td>
-                  <td className="px-4 py-3 text-xs text-slate-600">{vm.cpuAlloc} vCPU</td>
-                  <td className="px-4 py-3 text-xs text-slate-600">{vm.ramAlloc >= 1024 ? `${(vm.ramAlloc / 1024).toFixed(1)} GB` : `${vm.ramAlloc} MB`}</td>
-                  <td className="px-4 py-3 text-xs text-slate-600">{vm.diskAlloc} GB</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2 w-24">
-                      <div className="flex-1 bg-slate-100 rounded-full h-2">
-                        <div className={`h-2 rounded-full transition-all ${barColor(vm.cpuUsage)}`} style={{ width: `${isRunning ? vm.cpuUsage : 0}%` }} />
-                      </div>
-                      <span className="text-xs text-slate-500 w-8 text-right">{isRunning ? vm.cpuUsage : 0}%</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2 w-24">
-                      <div className="flex-1 bg-slate-100 rounded-full h-2">
-                        <div className={`h-2 rounded-full transition-all ${barColor(vm.ramUsage)}`} style={{ width: `${isRunning ? vm.ramUsage : 0}%` }} />
-                      </div>
-                      <span className="text-xs text-slate-500 w-8 text-right">{isRunning ? vm.ramUsage : 0}%</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1.5">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-slate-200 bg-slate-50">
+            {isAdmin && (
+              <th className="text-left px-2 py-2.5 font-semibold text-slate-500 uppercase tracking-wider">Profesor</th>
+            )}
+            <th className="px-2 py-2.5 w-8">
+              <input
+                type="checkbox"
+                checked={filteredVms.length > 0 && selectedIds.size === filteredVms.length}
+                onChange={onToggleSelectAll}
+                className="rounded border-slate-300"
+              />
+            </th>
+            <th className="text-left px-2 py-2.5 font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
+            <th className="text-left px-2 py-2.5 font-semibold text-slate-500 uppercase tracking-wider">Nombre</th>
+            <th className="text-left px-2 py-2.5 font-semibold text-slate-500 uppercase tracking-wider">IP</th>
+            <th className="text-left px-2 py-2.5 font-semibold text-slate-500 uppercase tracking-wider">MAC</th>
+            <th className="text-left px-2 py-2.5 font-semibold text-slate-500 uppercase tracking-wider">CPU</th>
+            <th className="text-left px-2 py-2.5 font-semibold text-slate-500 uppercase tracking-wider">RAM</th>
+            <th className="text-left px-2 py-2.5 font-semibold text-slate-500 uppercase tracking-wider">Disco</th>
+            <th className="text-left px-2 py-2.5 font-semibold text-slate-500 uppercase tracking-wider">Plantilla</th>
+            <th className="text-center px-1 py-2.5 font-semibold text-slate-500 uppercase tracking-wider">Uso CPU</th>
+            <th className="text-center px-1 py-2.5 font-semibold text-slate-500 uppercase tracking-wider">Uso RAM</th>
+            <th className="text-left px-1 py-2.5 font-semibold text-slate-500 uppercase tracking-wider">Acciones</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {filteredVms.map(vm => {
+            const isRunning = vm.status === 'running'
+            return (
+              <tr
+                key={vm.id}
+                className={`hover:bg-slate-50 transition-colors ${selectedIds.has(vm.id) ? 'bg-sky-50' : ''}`}
+              >
+                {isAdmin && (
+                  <td className="px-2 py-2 text-slate-600 truncate max-w-[70px]">{vm.ownerName || '—'}</td>
+                )}
+                <td className="px-2 py-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(vm.id)}
+                    onChange={() => onToggleSelect(vm.id)}
+                    className="rounded border-slate-300"
+                  />
+                </td>
+                <td className="px-2 py-2 whitespace-nowrap">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full inline-block ${isRunning ? 'bg-emerald-500 animate-pulse' : 'bg-red-400'}`} />
+                    <span className={`font-medium ${isRunning ? 'text-emerald-700' : 'text-red-600'}`}>
+                      {isRunning ? 'Encendida' : 'Apagada'}
+                    </span>
+                  </div>
+                </td>
+                <td className="px-2 py-2 font-medium text-slate-800 truncate max-w-[100px]">{vm.name}</td>
+                <td className="px-2 py-2 text-slate-500 font-mono truncate max-w-[100px]">{vm.ip || '-'}</td>
+                <td className="px-2 py-2 text-slate-500 font-mono truncate max-w-[120px]">{vm.mac}</td>
+                <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{vm.cpuAlloc} vCPU</td>
+                <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{vm.ramAlloc >= 1024 ? `${(vm.ramAlloc / 1024).toFixed(1)} GB` : `${vm.ramAlloc} MB`}</td>
+                <td className="px-2 py-2 text-slate-600">{vm.diskAlloc} GB</td>
+                <td className="px-2 py-2 text-slate-500 truncate max-w-[65px]">{shortTemplate(vm.templateName)}</td>
+                <td className="px-1 py-2 text-center">
+                  <Gauge pct={isRunning ? vm.cpuUsage : 0} size={28} strokeWidth={3} />
+                </td>
+                <td className="px-1 py-2 text-center">
+                  <Gauge pct={isRunning ? vm.ramUsage : 0} size={28} strokeWidth={3} />
+                </td>
+                  <td className="px-1 py-1.5">
+                    <div className="flex items-center gap-0.5">
                       {isRunning ? (
                         <>
                           <IconButton
@@ -196,7 +192,6 @@ export default function VMTable({
             })}
           </tbody>
         </table>
-      </div>
     </div>
   )
 }

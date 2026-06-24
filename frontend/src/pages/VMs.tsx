@@ -250,9 +250,6 @@ export default function VMs() {
   const totalCpuAlloc = allVms.reduce((s, v) => s + v.cpuAlloc, 0)
   const totalRamGb = allVms.reduce((s, v) => s + v.ramAlloc, 0) / 1024
 
-  const barColor = (pct: number) =>
-    pct > 80 ? 'bg-red-500' : pct > 50 ? 'bg-yellow-500' : 'bg-emerald-500'
-
   return (
     <div className="bg-[#f8fafc] space-y-5">
       <ContentHeader title="Instancias" icon="fa-microchip" />
@@ -286,7 +283,6 @@ export default function VMs() {
         loading={loading}
         error={error}
         isAdmin={isAdmin}
-        barColor={barColor}
         openMenu={openMenu}
         onToggleSelect={toggleSelect}
         onToggleSelectAll={toggleSelectAll}

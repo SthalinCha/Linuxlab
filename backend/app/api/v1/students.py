@@ -87,7 +87,7 @@ async def create_student(
     await session.refresh(student)
     await log_event(session, "student_create", user.username,
                     f"Creó estudiante {student.full_name}",
-                    "student", student.id, ip_address=_ip(request))
+                    "student", student.id, ip_address=_ip(request), user_id=user.id)
     return student
 
 
@@ -123,7 +123,7 @@ async def update_student(
     await session.refresh(student)
     await log_event(session, "student_update", user.username,
                     f"Actualizó estudiante {old_name} → {student.full_name}",
-                    "student", student.id, ip_address=_ip(request))
+                    "student", student.id, ip_address=_ip(request), user_id=user.id)
     return student
 
 
@@ -144,7 +144,7 @@ async def delete_student(
     await session.commit()
     await log_event(session, "student_deactivate", user.username,
                     f"Desactivó estudiante {student.full_name}",
-                    "student", student.id, ip_address=_ip(request))
+                    "student", student.id, ip_address=_ip(request), user_id=user.id)
     return {"message": "Estudiante desactivado"}
 
 
@@ -238,7 +238,7 @@ async def import_csv(
                 await log_event(
                     session, "assignment_create", user.username,
                     f"Asignación automática (CSV): {vm.name} → {student.full_name}",
-                    "assignment", a.id, ip_address=_ip(request),
+                    "assignment", a.id, ip_address=_ip(request), user_id=user.id,
                 )
 
             assigned = len(pairs)
@@ -248,7 +248,7 @@ async def import_csv(
     await log_event(session, "student_import", user.username,
                     f"Importó {created} estudiantes desde CSV ({assigned} asignados, "
                     f"{unassigned} sin VM, errores: {len(errors)})",
-                    "student", ip_address=_ip(request))
+                    "student", ip_address=_ip(request), user_id=user.id)
     return {
         "created": created,
         "assigned": assigned,
@@ -292,7 +292,7 @@ async def undo_import(
     await session.commit()
     await log_event(session, "student_undo_import", user.username,
                     f"Revertida importación: {deleted_students} estudiantes eliminados, {deleted_assignments} asignaciones borradas",
-                    "student", ip_address=_ip(request))
+                    "student", ip_address=_ip(request), user_id=user.id)
     return {"deleted_assignments": deleted_assignments, "deleted_students": deleted_students}
 
 

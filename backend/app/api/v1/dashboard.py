@@ -1,9 +1,10 @@
+import asyncio
 from fastapi import APIRouter, Depends
 from sqlalchemy import select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.rbac import admin_profesor
 from app.core.security import get_current_user
-from app.models import User, VirtualMachine, AuditLog
+from app.models import User, VirtualMachine, AuditLog, VMTemplate
 from app.database.session import get_session
 from app.services.host_service import get_host_metrics_async as get_host_metrics
 from app.services.metrics_collector import collector
@@ -24,6 +25,9 @@ from app.schemas.dashboard import (
 from app.core.dates import utc_iso
 
 router = APIRouter()
+
+_top_consumers_lock = asyncio.Lock()
+_history_lock = asyncio.Lock()
 
 
 def _compute_alerts_count(host: dict, crashed_vm_count: int) -> int:
@@ -117,7 +121,8 @@ async def get_dashboard_history(
     user: User = Depends(admin_profesor),
     session: AsyncSession = Depends(get_session),
 ):
-    history = await collector.get_history(session)
+    async with _history_lock:
+        history = await collector.get_history(session)
 
     return {
         "cpu_history": [CpuHistoryPoint(**p) for p in history["cpu_history"]],
@@ -169,7 +174,11 @@ async def get_top_consumers(
     user: User = Depends(admin_profesor),
     session: AsyncSession = Depends(get_session),
 ):
-    stats = collector.get_vm_stats()
+    template_result = await session.execute(select(VMTemplate.name))
+    template_names = {row[0] for row in template_result}
+    from functools import partial
+    async with _top_consumers_lock:
+        stats = await asyncio.to_thread(partial(collector.get_vm_stats, exclude_names=template_names))
     if user.role.name == "profesor":
         result = await session.execute(
             select(VirtualMachine.name).where(

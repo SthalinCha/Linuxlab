@@ -36,7 +36,7 @@ async def dashboard_ws(websocket: WebSocket):
                 await websocket.send_text(json.dumps(data))
             except Exception:
                 break
-            await asyncio.sleep(2)
+            await asyncio.sleep(10)
     except WebSocketDisconnect:
         pass
 

@@ -43,6 +43,19 @@ Multi-profesor RBAC: cada profesor ve solo sus VMs, estudiantes y asignaciones. 
 
 - **Integración `system_parameters`:** Creado `config_service.py` con `get_port_map()`, `get_cached_int()`, `get_cached_str()`, `load_config()`. 23 parámetros definidos (port_map, umbrales alerta, rate_limit, metrics, defaults clone, bridge/network). `DEFAULT_PORT_MAP` eliminado de `vm_service.py` — ahora lee de DB via `get_port_map()`. Dashboard thresholds (`_compute_alerts_count`, alerts endpoint, capacity estimation) reemplazados por `get_cached_int()`. Rate limiter dinámico via DB. `clone_service.py` lee `default_template` de DB. `assignment_service.py` usa `teacher_vm_name` de DB. `vms.py` usa `max_vm_recreations` de DB.
 
+- **Performance Audit (backend):** Audit identified 12 N+1/double-iteration issues. 9 fixed:
+  - **#1 log_event()**: `SELECT username FROM users` for each event → batch-loaded `user_id` passed from callers, lighter query
+  - **#2 _get_next_vm_number()**: iterated all VMs in Python → SQL `MAX(SUBSTRING_INDEX)` aggregation (single query)
+  - **#3 get_me()**: double query (user + role) → single `selectinload`
+  - **#4 get_current_user()**: DB lookup on every request → TTL cache in `get_db()` middleware (5s)
+  - **#5 Metrics/host libvirt iteration**: `metrics_collector.get_vm_stats()` and `host_service.get_resources()` each called `listDomainsID()` independently → both now use `VMManager.list_domains()` singleton cache (3s TTL)
+  - **#6 sync IP conflict check**: N+1 within loop → pre-fetched `all_ips` set once
+  - **#7 vm_manager.get_domain()**: direct `conn.lookupByName()` + `dom.info()` → reuses `list_domains()` cache
+  - **#8 sync_libvirt_domains() double iteration**: `_domain_to_vm_data()` called `dom.XMLDesc()`, `dom.info()`, `dom.interfaceAddresses()` — same as `list_domains()` → sync now uses `VMManager.list_domains()` as single source of truth
+  - **#10 _cpu_cache thread safety**: module-level dict without lock → `Lock` protecting all reads/writes
+  - **#12 list_users() pagination**: no limit/offset, returned all users → paginated with total
+  - **Indexes**: Added `ix_assignments_vm_active` (vm_id, released_at) and `ix_assignments_student_active` (student_id, released_at) in model + migration 010
+
 ## Key Decisions
 - Numeración de VMs global (backend es única fuente de verdad, `GET /vms/next-number`), no por profesor.
 - `recreate-range`: VMs ajenas saltan silenciosamente (no 403).
@@ -91,10 +104,11 @@ Multi-profesor RBAC: cada profesor ve solo sus VMs, estudiantes y asignaciones. 
 1. ~~Rebuild Docker + verify backend starts.~~
 2. ~~Insert/update `system_parameters` rows via SQL if defaults need overriding.~~
 3. ~~Course selector UI en Assignments y Students pages (frontend).~~
-4. Certificado SSL real (Let's Encrypt) para producción.
-5. Backup automático MariaDB.
-6. Deshabilitar `/docs` y `/openapi.json` en producción.
-7. Nginx rate limiting para login endpoint.
+4. ~~Performance audit + fixes completed.~~
+5. Certificado SSL real (Let's Encrypt) para producción.
+6. Backup automático MariaDB.
+7. Deshabilitar `/docs` y `/openapi.json` en producción.
+8. Nginx rate limiting para login endpoint.
 
 ## Relevant Files (updated)
 - `backend/app/models/course.py`: modelo Course con `profesor_id`.
@@ -106,5 +120,9 @@ Multi-profesor RBAC: cada profesor ve solo sus VMs, estudiantes y asignaciones. 
 - `backend/app/api/v1/periods.py`: close_period pasa `user_id`; list soporta `?course_id`.
 - `backend/app/api/v1/dashboard.py`: `admin_profesor` en 6 endpoints; owner_id filter en VMs.
 - `backend/app/services/assignment_service.py`: ownership en validate/release/bulk_release/batch_create/close_period.
-- `backend/migrations/006_courses.sql`, `007_periods_course_id.sql`, `008_students_course_id.sql`, `009_drop_vm_rules.sql`.
-- `frontend/src/pages/VMs.tsx`: next-number via endpoint en add/lab modal.
+- `backend/app/services/sync_vms.py`: `sync_libvirt_domains()` usa `VMManager.list_domains()` en vez de iterar libvirt directamente — elimina doble iteración.
+- `backend/app/core/libvirt/vm_manager.py`: `get_domain()` reusa `list_domains()` cache; `VMManager` singleton con caché TTL 3s.
+- `backend/app/services/vm_list_service.py`: `_cpu_cache` thread-safe con Lock.
+- `backend/app/api/v1/users.py`: `list_users()` con paginación (limit/offset) + total.
+- `backend/app/models/vm_assignment.py`: nuevos índices `ix_assignments_vm_active` (vm_id, released_at) y `ix_assignments_student_active` (student_id, released_at).
+- `backend/migrations/010_add_indexes.py`: migración para agregar índices en DB existente.

@@ -19,11 +19,9 @@ async def log_event(
 ) -> AuditLog:
     if user_id is None and username:
         result = await session.execute(
-            select(User).where(User.username == username, User.deleted_at.is_(None))
+            select(User.id).where(User.username == username, User.deleted_at.is_(None))
         )
-        user = result.scalar_one_or_none()
-        if user:
-            user_id = user.id
+        user_id = result.scalar_one_or_none()
 
     entry = AuditLog(
         event_type=event_type,

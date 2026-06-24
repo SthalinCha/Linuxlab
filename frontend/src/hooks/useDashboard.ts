@@ -10,8 +10,8 @@ function closeWebSocket(ws: WebSocket | null) {
   if (ws.readyState === WebSocket.OPEN) ws.close()
 }
 
-const POLL_MS = 120000
-const WS_RECONNECT_MS = 3000
+const POLL_MS = 300000
+const WS_RECONNECT_MS = 10000
 
 export function useDashboard() {
   const [data, setData] = useState<DashboardData | null>(null)

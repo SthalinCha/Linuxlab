@@ -288,12 +288,10 @@ export const api = {
     },
   },
   users: {
-    list: (opts?: SignalOption) =>
-      request<UserResponse[]>('/users', undefined, opts?.signal),
-    me: (opts?: SignalOption) =>
-      request<UserResponse>('/users/me', undefined, opts?.signal),
-    get: (id: number, opts?: SignalOption) =>
-      request<UserResponse>(`/users/${id}`, undefined, opts?.signal),
+    list: async (opts?: SignalOption) => {
+      const res = await request<{ items: UserResponse[] }>('/users', undefined, opts?.signal)
+      return res.items
+    },
     create: (data: UserCreate, opts?: SignalOption) =>
       request<UserResponse>('/users', { method: 'POST', body: JSON.stringify(data) }, opts?.signal),
     update: (id: number, data: UserUpdate, opts?: SignalOption) =>

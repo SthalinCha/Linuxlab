@@ -249,6 +249,7 @@ async def auto_assign(
         username=user.username,
         assigned_by=user.id,
         owner_id=user.id,
+        user_id=user.id,
     )
 
 
@@ -298,7 +299,7 @@ async def delete_assignment(
     from app.core.audit import log_event
     await log_event(session, "assignment_delete", user.username,
                     f"Eliminó asignación #{assignment_id}",
-                    "assignment", assignment_id, ip_address=_ip(request))
+                    "assignment", assignment_id, ip_address=_ip(request), user_id=user.id)
     return {"message": "Asignación eliminada"}
 
 
@@ -330,7 +331,7 @@ async def bulk_delete(
         deleted += 1
         await log_event(session, "assignment_delete", user.username,
                         f"Eliminó asignación #{aid} (masivo)",
-                        "assignment", aid, ip_address=_ip(request))
+                        "assignment", aid, ip_address=_ip(request), user_id=user.id)
 
     await session.commit()
     return {"deleted": deleted}

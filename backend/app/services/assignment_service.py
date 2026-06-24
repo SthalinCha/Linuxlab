@@ -121,6 +121,7 @@ async def create_assignment(
         session, "assignment_create", username,
         f"Asignó {vm_label} a {student.full_name} ({period.code})",
         "assignment", assignment.id, ip_address=ip,
+        user_id=user.id if user else None,
     )
     return assignment
 
@@ -156,6 +157,7 @@ async def release_assignment(
         session, "assignment_release", username,
         f"Liberó VM#{vm_id} (asignación #{assignment_id})",
         "assignment", assignment.id, ip_address=ip,
+        user_id=user.id if user else None,
     )
     return {"message": "Asignación liberada"}
 
@@ -218,6 +220,7 @@ async def auto_assign(
     username: str,
     assigned_by: int,
     owner_id: int | None = None,
+    user_id: int | None = None,
 ) -> dict:
     from fastapi import HTTPException
 
@@ -263,7 +266,7 @@ async def auto_assign(
         await log_event(
             session, "assignment_create", username,
             f"Asignación automática: {vm.name} → {student.full_name}",
-            "assignment", a.id, ip_address=ip,
+            "assignment", a.id, ip_address=ip, user_id=user_id,
         )
         created.append({"student": student.full_name, "vm": vm.name})
 
@@ -317,6 +320,7 @@ async def batch_create(
             session, "assignment_create", username,
             f"Asignación manual: {vm.name} → {student.full_name}",
             "assignment", assignment.id, ip_address=ip,
+            user_id=user.id if user else None,
         )
         created.append({"student": student.full_name, "vm": vm.name})
     return {"created": len(created), "assignments": created, "errors": errors, "unassigned_students": 0}
@@ -393,6 +397,7 @@ async def close_period(
         f"Finalizó período {period.code} ({len(active)} asignaciones liberadas)",
         "period", period.id, ip_address=ip,
         details={"released_count": len(active)},
+        user_id=user_id,
     )
 
     return {

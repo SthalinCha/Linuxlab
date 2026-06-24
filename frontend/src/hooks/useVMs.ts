@@ -8,20 +8,19 @@ function toVMStatus(raw: VMState): VMStatus {
   return 'shutoff'
 }
 
-function toVMDisplay(vm: VirtualMachine, cpuCount: number, ramTotalGb: number): VMDisplay {
+function toVMDisplay(vm: VirtualMachine): VMDisplay {
   const status = toVMStatus(vm.current_state)
-  const cpuUsage = vm.cpu_usage_percent != null
-    ? Math.min(100, Math.round(vm.cpu_usage_percent))
-    : cpuCount > 0 ? Math.min(100, Math.round((vm.vcpus / cpuCount) * 100)) : 0
-  const ramUsage = vm.ram_percent != null
-    ? Math.min(100, Math.round(vm.ram_percent))
-    : ramTotalGb > 0 ? Math.min(100, Math.round((vm.ram_mb / 1024 / ramTotalGb) * 100)) : 0
   return {
     id: vm.id, name: vm.name, status,
     ip: vm.ip_address || '', mac: vm.mac_address,
     cpuAlloc: vm.vcpus, ramAlloc: vm.ram_mb, diskAlloc: vm.disk_gb,
-    cpuUsage: status === 'running' ? cpuUsage : 0,
-    ramUsage: status === 'running' ? ramUsage : 0,
+    cpuUsage: status === 'running' && vm.cpu_usage_percent != null
+      ? Math.min(100, Math.round(vm.cpu_usage_percent)) : 0,
+    ramUsage: status === 'running' && vm.ram_used_mb != null
+      ? Math.min(100, Math.round((vm.ram_used_mb / (vm.max_ram_mb || vm.ram_mb)) * 100)) : 0,
+    ramRssMb: vm.ram_rss_mb,
+    ramMaxMb: vm.max_ram_mb ?? vm.ram_mb,
+    templateName: vm.template_name,
     ownerName: vm.owner_name,
   }
 }
@@ -49,9 +48,7 @@ export function useVMs(statusFilter: string) {
       if (signal.aborted) return
       setDashboardData(dash)
       if (Array.isArray(data)) {
-        const cpuCount = dash?.cpu_count ?? 0
-        const ramGb = dash?.ram_total_gb ?? 0
-        setAllVms(data.map(v => toVMDisplay(v, cpuCount, ramGb)))
+        setAllVms(data.map(v => toVMDisplay(v)))
       } else {
         console.warn('useVMs: vms data no es un array', data)
       }

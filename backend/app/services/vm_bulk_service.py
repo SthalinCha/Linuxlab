@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 async def delete_vm_by_id(session: AsyncSession, vm_id: int, vm_manager, clone_service,
-                          username: str, ip_address: str) -> dict | None:
+                          username: str, ip_address: str, user_id: int | None = None) -> dict | None:
     result = await session.execute(
         select(VirtualMachine).where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
     )
@@ -33,13 +33,13 @@ async def delete_vm_by_id(session: AsyncSession, vm_id: int, vm_manager, clone_s
     vm.soft_delete()
     await session.commit()
     await log_event(session, "vm_delete", username, f"Eliminó VM {vm.name}",
-                    "vm", vm.id, ip_address=ip_address)
+                    "vm", vm.id, ip_address=ip_address, user_id=user_id)
     return {"message": f"VM {vm.name} eliminada"}
 
 
 async def bulk_delete_vms(session: AsyncSession, vm_ids: list[int],
                           vm_manager, clone_service,
-                          username: str, ip_address: str) -> list[dict]:
+                          username: str, ip_address: str, user_id: int | None = None) -> list[dict]:
     if not vm_ids:
         return []
 
@@ -68,14 +68,14 @@ async def bulk_delete_vms(session: AsyncSession, vm_ids: list[int],
         vm.soft_delete()
         await session.commit()
         await log_event(session, "vm_delete", username, f"Eliminó VM {vm.name} (masivo)",
-                        "vm", vm.id, ip_address=ip_address)
+                        "vm", vm.id, ip_address=ip_address, user_id=user_id)
         results.append({"id": vm_id, "name": vm.name, "status": "deleted"})
 
     return results
 
 
 async def bulk_action_vms(session: AsyncSession, vm_ids: list[int], action: str,
-                          vm_manager, username: str, ip_address: str) -> list[dict]:
+                          vm_manager, username: str, ip_address: str, user_id: int | None = None) -> list[dict]:
     if not vm_ids:
         return []
 
@@ -109,7 +109,7 @@ async def bulk_action_vms(session: AsyncSession, vm_ids: list[int], action: str,
             await session.commit()
             await log_event(session, f"vm_{action}", username,
                             f"{action} masivo en {vm.name}",
-                            "vm", vm.id, ip_address=ip_address)
+                            "vm", vm.id, ip_address=ip_address, user_id=user_id)
             results.append({"id": vm_id, "name": vm.name, "status": "ok"})
         else:
             results.append({"id": vm_id, "name": vm.name, "status": "error"})

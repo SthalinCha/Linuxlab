@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.database.session import get_session
@@ -27,31 +27,35 @@ def _user_to_response(u: User) -> UserResponse:
 
 @router.get("")
 async def list_users(
+    limit: int = 100,
+    offset: int = 0,
     session: AsyncSession = Depends(get_session),
     user: User = Depends(admin_only),
 ):
+    count_result = await session.execute(
+        select(func.count()).select_from(
+            select(User).where(User.deleted_at.is_(None)).subquery()
+        )
+    )
+    total = count_result.scalar() or 0
+
     result = await session.execute(
         select(User)
         .options(selectinload(User.role))
         .where(User.deleted_at.is_(None))
         .order_by(User.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
     users = result.scalars().all()
-    return [_user_to_response(u) for u in users]
+    return {"items": [_user_to_response(u) for u in users], "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(
-    session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    result = await session.execute(
-        select(User)
-        .options(selectinload(User.role))
-        .where(User.id == user.id)
-    )
-    u = result.scalar_one()
-    return _user_to_response(u)
+    return _user_to_response(user)
 
 
 @router.get("/{user_id}", response_model=UserResponse)

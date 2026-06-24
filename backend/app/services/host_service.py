@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import logging
 import os
 import time
@@ -26,31 +27,22 @@ def get_host_metrics() -> dict:
         logger.warning("getInfo falló: %s", e)
         info = [0, 0, 0, 0]
 
-    try:
-        mem_stats = conn.getMemoryStats(-1, 0)
-        total_mem_kb = mem_stats.get("total", 0)
-        free_mem_kb = mem_stats.get("free", 0)
-    except Exception as e:
-        logger.warning("getMemoryStats falló: %s", e)
-        total_mem_kb = 0
-        free_mem_kb = 0
-
     cpu_percent = psutil.cpu_percent(interval=0)
     cpu_count = psutil.cpu_count(logical=False)
     load_1, load_5, load_15 = psutil.getloadavg()
     disk_usage = psutil.disk_usage("/")
     boot_time = psutil.boot_time()
 
-    import datetime
     uptime_delta = datetime.datetime.now() - datetime.datetime.fromtimestamp(boot_time)
     days = uptime_delta.days
     hours, remainder = divmod(uptime_delta.seconds, 3600)
     minutes = remainder // 60
     uptime_str = f"{days}d {hours}h {minutes}m"
 
-    total_mem_mb = total_mem_kb // 1024
-    used_mem_mb = (total_mem_kb - free_mem_kb) // 1024
-    ram_percent = (used_mem_mb / total_mem_mb * 100) if total_mem_mb else 0
+    mem = psutil.virtual_memory()
+    total_mem_mb = mem.total // (1024 * 1024)
+    used_mem_mb = (mem.total - mem.available) // (1024 * 1024)
+    ram_percent = mem.percent
 
     os_info = ""
     for os_path in ("/host-os-release", "/etc/os-release"):
@@ -75,22 +67,11 @@ def get_host_metrics() -> dict:
     except Exception as e:
         logger.debug("sensors_temperatures no disponible: %s", e)
 
-    total_vms = 0
-    running_vms = 0
-    def _is_vm(name):
-        return not ("template" in name.lower() or name == "ubuntu-server-main")
-    for name in conn.listDefinedDomains():
-        if _is_vm(name):
-            total_vms += 1
-    for domain_id in conn.listDomainsID():
-        try:
-            name = conn.lookupByID(domain_id).name()
-        except Exception as e:
-            logger.debug("Error lookup domain %s: %s", domain_id, e)
-            name = ""
-        if _is_vm(name):
-            total_vms += 1
-            running_vms += 1
+    from app.core.libvirt.vm_manager import VMManager
+    mgr = VMManager()
+    domains = mgr.list_domains()
+    total_vms = len(domains)
+    running_vms = sum(1 for d in domains if d.get("state") == "running")
 
     result = {
         "hostname": conn.getHostname(),

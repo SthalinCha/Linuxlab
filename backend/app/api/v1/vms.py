@@ -69,18 +69,17 @@ async def _auto_uniptables(num: int):
 
 
 async def _get_next_vm_number(session: AsyncSession) -> int:
+    from sqlalchemy import func, cast, Integer
     result = await session.execute(
-        select(VirtualMachine.name).where(VirtualMachine.deleted_at.is_(None))
+        select(func.max(
+            cast(func.substring_index(VirtualMachine.name, '-', -1), Integer)
+        )).where(
+            VirtualMachine.name.like("vhost-%"),
+            VirtualMachine.deleted_at.is_(None),
+        )
     )
-    names = result.scalars().all()
-    nums = []
-    for n in names:
-        if n.startswith("vhost-"):
-            try:
-                nums.append(int(n.split("-")[-1]))
-            except ValueError:
-                continue
-    return max(nums) + 1 if nums else 10
+    max_num = result.scalar()
+    return max_num + 1 if max_num else 10
 
 
 async def _create_single_vm(
@@ -163,7 +162,7 @@ async def _create_single_vm(
     await _auto_iptables(num)
     await log_event(session, "vm_clone", username,
                     f"Creó VM {name} desde plantilla",
-                    "vm", vm.id, ip_address=ip_address)
+                    "vm", vm.id, ip_address=ip_address, user_id=owner_id)
     return {"vm": vm, "status": "created", "reason": None, "name": name, "number": num}
 
 
@@ -253,7 +252,7 @@ async def start_vm(
     vm.current_state = "running"
     await session.commit()
     await log_event(session, "vm_start", user.username, f"Inició VM {vm.name}",
-                    "vm", vm.id, ip_address=_ip_from_request(request))
+                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id)
     if vm.ip_address and vm.mac_address:
         try:
             from app.services.libvirt_network import ensure_dhcp_host
@@ -282,7 +281,7 @@ async def shutdown_vm(
     vm.current_state = "shut off"
     await session.commit()
     await log_event(session, "vm_shutdown", user.username, f"Apagó VM {vm.name}",
-                    "vm", vm.id, ip_address=_ip_from_request(request))
+                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id)
     try:
         num = int(vm.name.split("-")[-1])
         await _auto_uniptables(num)
@@ -303,7 +302,7 @@ async def reboot_vm(
     if not ok:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al reiniciar VM")
     await log_event(session, "vm_reboot", user.username, f"Reinició VM {vm.name}",
-                    "vm", vm.id, ip_address=_ip_from_request(request))
+                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id)
     return {"message": f"VM {vm.name} reiniciando"}
 
 
@@ -321,7 +320,7 @@ async def destroy_vm(
     vm.current_state = "shut off"
     await session.commit()
     await log_event(session, "vm_destroy", user.username, f"Forzó apagado de VM {vm.name}",
-                    "vm", vm.id, ip_address=_ip_from_request(request))
+                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id)
     try:
         num = int(vm.name.split("-")[-1])
         await _auto_uniptables(num)
@@ -455,7 +454,7 @@ async def recreate_vm(
         pass
     await session.commit()
     await log_event(session, "vm_recreate", user.username, f"Recreó VM {vm.name}",
-                    "vm", vm.id, ip_address=_ip_from_request(request))
+                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id)
     return {"message": f"VM {vm.name} recreada", "recreation_count": assignment.recreation_count if assignment else 0}
 
 
@@ -498,7 +497,7 @@ async def recreate_vm_range(
         await session.commit()
         await log_event(session, "vm_recreate", user.username,
                         f"Recreó {vm.name} (rango)",
-                        "vm", vm.id, ip_address=_ip_from_request(request))
+                        "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id)
         results.append({"number": num, "name": name, "status": "recreated"})
 
     return results
@@ -513,7 +512,7 @@ async def delete_vm(
 ):
     vm = await _get_vm_or_404(session, vm_id, user)
     result = await delete_vm_by_id(session, vm_id, vm_manager, clone_service,
-                                   user.username, _ip_from_request(request))
+                                   user.username, _ip_from_request(request), user_id=user.id)
     return result
 
 
@@ -536,7 +535,7 @@ async def bulk_delete(
         )
         ids = [r[0] for r in result.all()]
     return await bulk_delete_vms(session, ids, vm_manager, clone_service,
-                                 user.username, _ip_from_request(request))
+                                 user.username, _ip_from_request(request), user_id=user.id)
 
 
 @router.post("/bulk-action")
@@ -561,7 +560,7 @@ async def bulk_action(
         )
         ids = [r[0] for r in result.all()]
     return await bulk_action_vms(session, ids, body.action, vm_manager,
-                                 user.username, _ip_from_request(request))
+                                 user.username, _ip_from_request(request), user_id=user.id)
 
 
 @router.post("/{vm_id}/ports", response_model=VirtualMachineResponse)
@@ -574,7 +573,7 @@ async def add_port(
 ):
     await _get_vm_or_404(session, vm_id, user)
     result = await add_port_to_vm(session, vm_id, body.service, body.port,
-                                  user.username, _ip_from_request(request))
+                                  user.username, _ip_from_request(request), user_id=user.id)
     resp = VirtualMachineResponse.model_validate(result)
     resp.owner_name = result.owner.full_name if result.owner else None
     return resp
@@ -590,7 +589,7 @@ async def remove_port(
 ):
     await _get_vm_or_404(session, vm_id, user)
     result = await remove_port_from_vm(session, vm_id, port_index,
-                                       user.username, _ip_from_request(request))
+                                       user.username, _ip_from_request(request), user_id=user.id)
     resp = VirtualMachineResponse.model_validate(result)
     resp.owner_name = result.owner.full_name if result.owner else None
     return resp
@@ -605,7 +604,7 @@ async def bulk_ports(
 ):
     await _get_vm_or_404(session, body.vm_id, user)
     result = await bulk_add_ports_to_vm(session, body.vm_id, [p.model_dump() for p in body.ports],
-                                        user.username, _ip_from_request(request))
+                                        user.username, _ip_from_request(request), user_id=user.id)
     resp = VirtualMachineResponse.model_validate(result)
     resp.owner_name = result.owner.full_name if result.owner else None
     return resp
@@ -645,5 +644,5 @@ async def repair_vms(
                 repaired.append(f"{vm.name} (DHCP ya existe)")
     await log_event(session, "vms_repair", user.username,
                     f"Reparación masiva: {len(repaired)} ok, {len(errors)} errores",
-                    ip_address=_ip_from_request(request))
+                    ip_address=_ip_from_request(request), user_id=user.id)
     return {"repaired": len(repaired), "errors": errors, "total": len(vms)}

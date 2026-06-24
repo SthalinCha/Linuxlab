@@ -1,3 +1,5 @@
+import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
@@ -13,6 +15,9 @@ from app.models import User, Role
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
+
+_user_cache: dict[str, tuple[User, float]] = {}
+_USER_CACHE_TTL = int(os.getenv("USER_CACHE_TTL", "300"))
 
 
 def hash_password(password: str) -> str:
@@ -57,6 +62,12 @@ async def get_current_user(
     username = payload.get("sub")
     if not username:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token sin subject")
+
+    now = time.time()
+    cached = _user_cache.get(username)
+    if cached and now - cached[1] < _USER_CACHE_TTL:
+        return cached[0]
+
     result = await session.execute(
         select(User)
         .options(selectinload(User.role))
@@ -65,6 +76,8 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado o inactivo")
+
+    _user_cache[username] = (user, now)
     return user
 
 
