@@ -8,36 +8,48 @@ export default function Host() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const loadData = async () => {
-    setLoading(true)
-    try {
-      const hostData = await api.host.get()
-      setHost(hostData)
-      setError('')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar información del host')
-    } finally {
-      setLoading(false)
-    }
-  }
+  useEffect(() => {
+    const controller = new AbortController()
 
-  useEffect(() => { loadData() }, [])
+    const loadData = async () => {
+      setLoading(true)
+      try {
+        const hostData = await api.host.get({ signal: controller.signal })
+        if (controller.signal.aborted) return
+        setHost(hostData)
+        setError('')
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return
+        setError(err instanceof Error ? err.message : 'Error al cargar información del host')
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
+      }
+    }
+
+    loadData()
+    return () => controller.abort()
+  }, [])
 
   if (loading) {
     return <div className="flex items-center justify-center h-64 text-slate-500">Cargando...</div>
   }
 
   if (!host) {
-    return <div className="text-center text-slate-500 py-12">No se pudo cargar la información del host</div>
+    return (
+      <div className="space-y-6">
+        <ContentHeader title="Host" icon="fa-server" />
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded text-sm">
+            {error} <button onClick={() => setError('')} className="float-right font-bold">&times;</button>
+          </div>
+        )}
+        <div className="text-center text-slate-500 py-12">No se pudo cargar la información del host</div>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-6">
-      {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded text-sm">
-          {error} <button onClick={() => setError('')} className="float-right font-bold">&times;</button>
-        </div>
-      )}
       <ContentHeader title="Host" icon="fa-server" />
 
       {/* Resumen */}

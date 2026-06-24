@@ -4,6 +4,7 @@ import { useToast } from '../hooks/useToast'
 import type { VirtualMachine, HostInfo } from '../types'
 import PortGroupCard from './PortCard'
 import PortRangeModal from './PortRangeModal'
+import ConfirmModal from './ConfirmModal'
 import { StatsSkeleton, TableSkeleton } from './Skeleton'
 
 export default function PortForwardGrid() {
@@ -15,6 +16,7 @@ export default function PortForwardGrid() {
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [search, setSearch] = useState('')
   const [showRangeModal, setShowRangeModal] = useState(false)
+  const [deleteConfirmPort, setDeleteConfirmPort] = useState<{ vmId: number; portIndex: number; service: string } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   const loadData = useCallback(async () => {
@@ -82,11 +84,29 @@ export default function PortForwardGrid() {
     const port = vm.ports[portIndex]
     if (!port) return
 
+    setDeleteConfirmPort({ vmId, portIndex, service: vm.ports?.[portIndex]?.service || '?' })
+  }
+
+  const deleteAbortRef = useRef<AbortController | null>(null)
+
+  const confirmDeletePort = async () => {
+    if (!deleteConfirmPort) return
+    const { vmId, portIndex } = deleteConfirmPort
+    const vm = vms.find(v => v.id === vmId)
+    const port = vm?.ports?.[portIndex]
+    setDeleteConfirmPort(null)
+    if (!vm || !port) return
+
+    deleteAbortRef.current?.abort()
+    const controller = new AbortController()
+    deleteAbortRef.current = controller
     try {
-      const updated = await api.ports.remove(vmId, portIndex)
+      const updated = await api.ports.remove(vmId, portIndex, { signal: controller.signal })
+      if (controller.signal.aborted) return
       updateVmInState(updated)
       addToast('success', `DNAT tcp  ${hostInfo?.ip_principal || '?'}:${port.host} → ${vm.ip_address || '?'}:${port.vm} eliminado de ${vm.name}`)
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       addToast('error', `Error al eliminar: ${err instanceof Error ? err.message : 'Error'}`)
     }
   }
@@ -378,6 +398,17 @@ export default function PortForwardGrid() {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={deleteConfirmPort !== null}
+        title="Eliminar puerto"
+        message={`¿Eliminar el puerto ${deleteConfirmPort?.service || ''}? Esta acción no se puede deshacer.`}
+        confirmLabel="Eliminar"
+        cancelLabel="Cancelar"
+        danger
+        onConfirm={confirmDeletePort}
+        onCancel={() => setDeleteConfirmPort(null)}
+      />
     </div>
   )
 }

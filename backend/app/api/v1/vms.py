@@ -214,6 +214,7 @@ async def get_next_vm_number(
 @router.get("/templates")
 async def list_vm_templates(
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
     result = await session.execute(
         select(VMTemplate).order_by(VMTemplate.name)
@@ -616,14 +617,13 @@ async def repair_vms(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    if user.role.name not in ("admin", "profesor"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No autorizado")
-    result = await session.execute(
-        select(VirtualMachine).where(
-            VirtualMachine.deleted_at.is_(None),
-            VirtualMachine.template_id.is_(None),
-        )
+    query = select(VirtualMachine).where(
+        VirtualMachine.deleted_at.is_(None),
+        VirtualMachine.template_id.is_(None),
     )
+    if user.role.name == "profesor":
+        query = query.where(VirtualMachine.owner_id == user.id)
+    result = await session.execute(query)
     vms = result.scalars().all()
     repaired = []
     errors = []

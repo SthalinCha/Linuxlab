@@ -53,11 +53,6 @@ export interface Port {
   serviceName?: string
 }
 
-export interface AddPortRequest {
-  service: string
-  port: number
-}
-
 export interface BulkPortEntry {
   host: number
   vm: number
@@ -260,14 +255,4 @@ export interface VMTemplateInfo {
   disk_gb: number
 }
 
-export interface AdminCreateRequest {
-  username: string
-  password: string
-  full_name: string
-}
 
-export interface AdminCreateResponse {
-  id: number
-  username: string
-  full_name: string
-}

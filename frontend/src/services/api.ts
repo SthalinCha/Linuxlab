@@ -2,8 +2,8 @@ import type {
   DashboardData, DashboardHistory,
   TopConsumers,
   VirtualMachine, Student, VMAssignment, AuditLog, TokenResponse,
-  HostInfo, AdminCreateRequest, AdminCreateResponse,
-  PeriodInfo, AddPortRequest, Period, PortRangeConfig, PortRangeResult,
+  HostInfo,
+  PeriodInfo, Period, PortRangeConfig, PortRangeResult,
   BulkPortsRequest,
   UserResponse, UserCreate, UserUpdate,
   VMTemplateInfo,
@@ -75,10 +75,6 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ username, password }),
       }, opts?.signal),
-    register: (data: AdminCreateRequest, opts?: SignalOption) =>
-      request<AdminCreateResponse>('/auth/register', {
-        method: 'POST', body: JSON.stringify(data),
-      }, opts?.signal),
     changePassword: (current_password: string, new_password: string, opts?: SignalOption) =>
       request<{ message: string }>('/auth/change-password', {
         method: 'POST',
@@ -99,11 +95,6 @@ export const api = {
       }, opts?.signal),
   },
   ports: {
-    add: (vmId: number, data: AddPortRequest, opts?: SignalOption) =>
-      request<VirtualMachine>(`/vms/${vmId}/ports`, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }, opts?.signal),
     remove: (vmId: number, portIndex: number, opts?: SignalOption) =>
       request<VirtualMachine>(`/vms/${vmId}/ports/${portIndex}`, {
         method: 'DELETE',
@@ -153,11 +144,6 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }, opts?.signal),
-    recreateRange: (from_number: number, to_number: number, opts?: SignalOption) =>
-      request<Array<{ number: number; name: string; status: string; reason?: string }>>('/vms/recreate-range', {
-        method: 'POST',
-        body: JSON.stringify({ from_number, to_number }),
-      }, opts?.signal),
     nextNumber: (opts?: SignalOption) =>
       request<{ next_number: number }>('/vms/next-number', undefined, opts?.signal),
     bulkSavePorts: (data: BulkPortsRequest, opts?: SignalOption) =>
@@ -171,10 +157,6 @@ export const api = {
       const res = await request<{ items: Student[] }>(`/students${search ? `?search=${search}` : ''}`, undefined, opts?.signal)
       return res.items
     },
-    create: (data: { full_name: string; email: string }, opts?: SignalOption) =>
-      request<Student>('/students', { method: 'POST', body: JSON.stringify(data) }, opts?.signal),
-    update: (id: number, data: { full_name?: string; email?: string; is_active?: boolean }, opts?: SignalOption) =>
-      request<Student>(`/students/${id}`, { method: 'PUT', body: JSON.stringify(data) }, opts?.signal),
     delete: (id: number, opts?: SignalOption) =>
       request<{ message: string }>(`/students/${id}`, { method: 'DELETE' }, opts?.signal),
     undoImport: (data: { student_ids: number[]; period_id?: number }, opts?: SignalOption) =>
@@ -182,7 +164,7 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }, opts?.signal),
-    importCsv: async (file: File, periodId?: number, opts?: SignalOption): Promise<{ created: number; reused: number; assigned: number; unassigned: number; errors: string[]; created_ids: number[] }> => {
+    importCsv: async (file: File, periodId?: number, opts?: SignalOption): Promise<{ created: number; assigned: number; unassigned: number; errors: string[]; created_ids: number[] }> => {
       const formData = new FormData()
       formData.append('file', file)
       const url = `/students/import-csv${periodId ? `?period_id=${periodId}` : ''}`
@@ -199,10 +181,6 @@ export const api = {
         throw new Error(err.detail || 'Error al importar CSV')
       }
       return res.json()
-    },
-    history: async (id: number, opts?: SignalOption) => {
-      const res = await request<{ items: VMAssignment[] }>(`/students/${id}/history`, undefined, opts?.signal)
-      return res.items
     },
   },
   assignments: {
@@ -223,14 +201,6 @@ export const api = {
       request<VMAssignment>('/assignments', { method: 'POST', body: JSON.stringify(data) }, opts?.signal),
     release: (id: number, opts?: SignalOption) =>
       request<{ message: string }>(`/assignments/${id}/release`, { method: 'POST' }, opts?.signal),
-    autoAssign: (periodId: number, preview = true, opts?: SignalOption) =>
-      request<{ created?: number; preview?: boolean; assignments: Array<{ student: string; vm: string; student_id?: number; vm_id?: number }>; unassigned_students: number; available_vms?: number; total_unassigned?: number }>(
-        '/assignments/auto-assign', { method: 'POST', body: JSON.stringify({ period_id: periodId, preview }) }, opts?.signal
-      ),
-    batchCreate: (assignments: Array<{ vm_id: number; student_id: number; period_id: number }>, opts?: SignalOption) =>
-      request<{ created: number; assignments: Array<{ student: string; vm: string }>; errors?: Array<{ vm_id: number; student_id: number; reason: string }>; unassigned_students: number }>(
-        '/assignments/batch', { method: 'POST', body: JSON.stringify({ assignments }) }, opts?.signal
-      ),
     bulkRelease: (ids: number[], opts?: SignalOption) =>
       request<{ released: number }>('/assignments/bulk-release', {
         method: 'POST', body: JSON.stringify({ ids }),

@@ -41,9 +41,11 @@ export default function VMs() {
   const [creatingLab, setCreatingLab] = useState(false)
 
   useEffect(() => {
-    api.vms.templates().then((res) => {
-      if (res?.items) setTemplateOptions(res.items)
+    const controller = new AbortController()
+    api.vms.templates({ signal: controller.signal }).then((res) => {
+      if (!controller.signal.aborted && res?.items) setTemplateOptions(res.items)
     }).catch(() => {})
+    return () => controller.abort()
   }, [])
 
   useEffect(() => {
@@ -60,18 +62,21 @@ export default function VMs() {
     const labels: Record<string, string> = { start: 'Encendiendo', shutdown: 'Apagando', reboot: 'Reiniciando', destroy: 'Forzando apagado' }
     const vm = allVms.find(v => v.id === id)
     const tid = addToast('loading', `${labels[action] || action} ${vm?.name || id}...`)
+    const controller = new AbortController()
     try {
-      const actions: Record<string, (id: number) => Promise<unknown>> = {
+      const actions: Record<string, (id: number, opts?: { signal?: AbortSignal }) => Promise<unknown>> = {
         start: api.vms.start, shutdown: api.vms.shutdown,
         reboot: api.vms.reboot, destroy: api.vms.destroy,
       }
-      await actions[action](id)
+      await actions[action](id, { signal: controller.signal })
+      if (controller.signal.aborted) return
       if (action === 'destroy') setConfirmDestroy(null)
       removeToast(tid)
       const successLabels: Record<string, string> = { start: 'se encendió', shutdown: 'se apagó', reboot: 'se reinició', destroy: 'se forzó apagado' }
       addToast('success', `${vm?.name || id} ${successLabels[action] || action} con éxito`)
       await loadVms()
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       removeToast(tid)
       addToast('error', `Error al ${action} ${vm?.name || id}`)
     }
@@ -80,13 +85,16 @@ export default function VMs() {
   const doBulkAction = async () => {
     if (!confirmBulkAction) return
     const tid = addToast('loading', `Ejecutando ${confirmBulkAction.label} en ${confirmBulkAction.ids.length} VM(s)...`)
+    const controller = new AbortController()
     try {
-      const data = await api.vms.bulkAction(confirmBulkAction.ids, confirmBulkAction.action)
+      const data = await api.vms.bulkAction(confirmBulkAction.ids, confirmBulkAction.action, { signal: controller.signal })
+      if (controller.signal.aborted) return
       setConfirmBulkAction(null)
       removeToast(tid)
       addToast('success', `${confirmBulkAction.label}: ${data.filter(r => r.status === 'ok').length} VM(s) procesadas`)
       await loadVms()
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       removeToast(tid)
       addToast('error', 'Error en acción masiva')
     }
@@ -95,14 +103,17 @@ export default function VMs() {
   const handleBulkDelete = async () => {
     const ids = Array.from(selectedIds)
     const tid = addToast('loading', `Eliminando ${ids.length} VM(s)...`)
+    const controller = new AbortController()
     try {
-      const data = await api.vms.bulkDelete(ids)
+      const data = await api.vms.bulkDelete(ids, { signal: controller.signal })
+      if (controller.signal.aborted) return
       setConfirmBulkDelete(false)
       setSelectedIds(new Set())
       removeToast(tid)
       addToast('success', `${data.filter(r => r.status === 'deleted').length} VM(s) eliminadas`)
       await loadVms()
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       removeToast(tid)
       addToast('error', 'Error al eliminar')
     }
@@ -110,11 +121,13 @@ export default function VMs() {
 
   const handleBulkRecreate = async (ids: number[]) => {
     const tid = addToast('loading', `Recreando ${ids.length} VM(s)...`)
+    const controller = new AbortController()
     try {
       let ok = 0
       for (const id of ids) {
+        if (controller.signal.aborted) return
         try {
-          await api.vms.recreate(id)
+          await api.vms.recreate(id, { signal: controller.signal })
           ok++
         } catch {
           const vm = allVms.find(v => v.id === id)
@@ -126,14 +139,17 @@ export default function VMs() {
       addToast('success', `${ok} VM(s) recreadas`)
       await loadVms()
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       removeToast(tid)
       addToast('error', 'Error al recrear VMs')
     }
   }
 
   const handleAddVmConfirm = async () => {
+    const controller = new AbortController()
     try {
-      const res = await api.vms.nextNumber()
+      const res = await api.vms.nextNumber({ signal: controller.signal })
+      if (controller.signal.aborted) return
       setConfirmAddVm(res.next_number)
     } catch {
       addToast('error', 'Error al obtener el siguiente número disponible')
@@ -141,8 +157,10 @@ export default function VMs() {
   }
 
   const handleOpenLabModal = async () => {
+    const controller = new AbortController()
     try {
-      const res = await api.vms.nextNumber()
+      const res = await api.vms.nextNumber({ signal: controller.signal })
+      if (controller.signal.aborted) return
       setLabStart(res.next_number)
     } catch {
       addToast('error', 'Error al obtener el siguiente número disponible')
@@ -154,30 +172,36 @@ export default function VMs() {
     if (confirmAddVm === null) return
     setCreatingVm(true)
     const tid = addToast('loading', `Creando vhost-${confirmAddVm}...`)
+    const controller = new AbortController()
     try {
-      await api.vms.clone({ number: confirmAddVm, template_name: labTemplate })
+      await api.vms.clone({ number: confirmAddVm, template_name: labTemplate }, { signal: controller.signal })
+      if (controller.signal.aborted) return
       setConfirmAddVm(null)
       removeToast(tid)
       addToast('success', `vhost-${confirmAddVm} creada`)
       await loadVms()
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       removeToast(tid)
       addToast('error', err instanceof Error ? err.message : 'Error al crear VM')
     } finally {
-      setCreatingVm(false)
+      if (!controller.signal.aborted) setCreatingVm(false)
     }
   }
 
   const handleRecreate = async (id: number) => {
     const vm = allVms.find(v => v.id === id)
     const tid = addToast('loading', `Recreando ${vm?.name || id}...`)
+    const controller = new AbortController()
     try {
-      await api.vms.recreate(id)
+      await api.vms.recreate(id, { signal: controller.signal })
+      if (controller.signal.aborted) return
       setConfirmRecreate(null)
       removeToast(tid)
       addToast('success', `${vm?.name || id} recreada`)
       await loadVms()
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       removeToast(tid)
       addToast('error', `Error al recrear ${vm?.name || id}`)
     }
@@ -186,14 +210,17 @@ export default function VMs() {
   const handleDelete = async (id: number) => {
     const vm = allVms.find(v => v.id === id)
     const tid = addToast('loading', `Eliminando ${vm?.name || id}...`)
+    const controller = new AbortController()
     try {
-      await api.vms.delete(id)
+      await api.vms.delete(id, { signal: controller.signal })
+      if (controller.signal.aborted) return
       setConfirmDelete(null)
       setSelectedIds((prev) => { const next = new Set(prev); next.delete(id); return next })
       removeToast(tid)
       addToast('success', `${vm?.name || id} eliminada`)
       await loadVms()
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       removeToast(tid)
       addToast('error', `Error al eliminar ${vm?.name || id}`)
     }
@@ -202,8 +229,10 @@ export default function VMs() {
   const handleCreateLab = async () => {
     setCreatingLab(true)
     const tid = addToast('loading', `Creando laboratorio: ${labCount} VMs...`)
+    const controller = new AbortController()
     try {
-      const data = await api.vms.createLab({ count: labCount, start_number: labStart, prefix: labPrefix, template_name: labTemplate })
+      const data = await api.vms.createLab({ count: labCount, start_number: labStart, prefix: labPrefix, template_name: labTemplate }, { signal: controller.signal })
+      if (controller.signal.aborted) return
       const created = data.filter(r => r.status === 'created').length
       setShowLabModal(false)
       removeToast(tid)
@@ -214,10 +243,11 @@ export default function VMs() {
       }
       await loadVms()
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       removeToast(tid)
       addToast('error', 'Error al crear laboratorio')
     } finally {
-      setCreatingLab(false)
+      if (!controller.signal.aborted) setCreatingLab(false)
     }
   }
 

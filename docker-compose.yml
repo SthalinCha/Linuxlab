@@ -2,10 +2,10 @@ services:
   db:
     image: mariadb:11
     environment:
-      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-linuxlab_root}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD is required}
       MARIADB_DATABASE: ${MARIADB_DATABASE:-linuxlab}
       MARIADB_USER: ${MARIADB_USER:-linuxlab}
-      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-linuxlab_pass}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:?MARIADB_PASSWORD is required}
     ports:
       - "127.0.0.1:3306:3306"
     volumes:
@@ -14,32 +14,43 @@ services:
       test: ["CMD", "healthcheck.sh", "--connect"]
       interval: 10s
       retries: 5
+      start_period: 30s
     restart: unless-stopped
+    networks:
+      - backend
 
   backend:
     build: ./backend
     env_file: .env
-    network_mode: host
     environment:
-      DATABASE_URL: mysql+aiomysql://${MARIADB_USER:-linuxlab}:${MARIADB_PASSWORD:-linuxlab_pass}@127.0.0.1:3306/${MARIADB_DATABASE:-linuxlab}
-      SECRET_KEY: ${SECRET_KEY}
-      ACCESS_TOKEN_EXPIRE_MINUTES: "30"
-      REFRESH_TOKEN_EXPIRE_DAYS: "7"
-      CORS_ORIGINS: '["http://localhost", "https://localhost"]'
-    user: "1000"
-    group_add:
-      - "982"
+      DATABASE_URL: mysql+aiomysql://${MARIADB_USER:-linuxlab}:${MARIADB_PASSWORD:?MARIADB_PASSWORD is required}@127.0.0.1:3306/${MARIADB_DATABASE:-linuxlab}
+    network_mode: host
     cap_add:
       - NET_ADMIN
+      - SYS_ADMIN
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - /var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock:rw
       - /etc/os-release:/host-os-release:ro
-      - /home/ubuntu/.ssh:/app/.ssh:ro
       - /var/lib/libvirt/images:/var/lib/libvirt/images:rw
+    # Optional: mount SSH keys for VM access
+    # - ${VM_SSH_KEY_DIR}:/app/.ssh:ro
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    network_mode: host
+    environment:
+      VM_SUBNET: ${VM_SUBNET:-192.168.122}
+    depends_on:
+      - backend
     restart: unless-stopped
 
 volumes:
   db_data:
+
+networks:
+  backend:
+    driver: bridge

@@ -123,7 +123,13 @@ export default function PortRangeModal({ open, onClose, selectedVms, allVms, onA
     if (step > 1) setStep(s => (s - 1) as 1 | 2 | 3)
   }
 
+  const applyAbortRef = useRef<AbortController | null>(null)
+
   const handleApply = async () => {
+    applyAbortRef.current?.abort()
+    const controller = new AbortController()
+    applyAbortRef.current = controller
+
     setError('')
     setPhase('applying')
     setProgress(0)
@@ -142,14 +148,16 @@ export default function PortRangeModal({ open, onClose, selectedVms, allVms, onA
         guest_port_start: mode === 'block' ? guestPortStart : undefined,
         protocol,
         description: description || undefined,
-      })
+      }, { signal: controller.signal })
 
+      if (controller.signal.aborted) return
       setResults(res.results)
       setProgress(res.total)
 
       const updatedVms: VirtualMachine[] = []
       let saveErrors = 0
       for (const [idx, vm] of runningVms.entries()) {
+        if (controller.signal.aborted) return
         const serviceName = (description || 'CUSTOM').trim().toUpperCase()
         const ports: BulkPortEntry[] = []
         if (mode === 'block') {
@@ -162,13 +170,15 @@ export default function PortRangeModal({ open, onClose, selectedVms, allVms, onA
           ports.push({ host: basePort + idx, vm: guestPortStart ?? basePort, service: serviceName, serviceName })
         }
         try {
-          const updated = await api.vms.bulkSavePorts({ vm_id: vm.id, ports })
+          const updated = await api.vms.bulkSavePorts({ vm_id: vm.id, ports }, { signal: controller.signal })
+          if (controller.signal.aborted) return
           updatedVms.push(updated)
         } catch {
           saveErrors++
         }
       }
 
+      if (controller.signal.aborted) return
       onApply?.(updatedVms)
 
       setPhase('results')
@@ -184,6 +194,7 @@ export default function PortRangeModal({ open, onClose, selectedVms, allVms, onA
         addToast('success', `${res.total} regla(s) aplicadas correctamente`)
       }
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Error desconocido')
       setPhase('error')
     }

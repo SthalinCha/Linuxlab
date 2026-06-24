@@ -12,12 +12,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN groupadd -g 1000 linuxlab && useradd -m -u 1000 -g linuxlab -d /app -s /bin/bash linuxlab && \
-    chown -R linuxlab:linuxlab /app && \
-    echo 'linuxlab ALL=(ALL) NOPASSWD: /usr/sbin/iptables, /usr/sbin/iptables-save, /usr/sbin/iptables-restore' >> /etc/sudoers
+RUN chmod +x /app/entrypoint.sh
 
-USER linuxlab
+# Allow root to run iptables without password (already root)
+# SSH key dir for VM access — mount via docker-compose volumes
+RUN mkdir -p /app/.ssh && chmod 700 /app/.ssh
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/entrypoint.sh"]

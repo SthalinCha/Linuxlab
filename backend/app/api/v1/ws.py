@@ -12,19 +12,22 @@ from app.core.config import VM_SSH_USER
 router = APIRouter()
 
 
-@router.websocket("/dashboard")
-async def dashboard_ws(websocket: WebSocket):
-    token = websocket.query_params.get("token")
+def _verify_ws_token(token: str | None) -> dict | None:
     if not token:
-        await websocket.close(code=4001, reason="Token requerido")
-        return
-
+        return None
     try:
         payload = decode_token(token)
         if payload.get("type") != "access":
-            await websocket.close(code=4001, reason="Token inválido")
-            return
+            return None
+        return payload
     except Exception:
+        return None
+
+
+@router.websocket("/dashboard")
+async def dashboard_ws(websocket: WebSocket):
+    payload = _verify_ws_token(websocket.query_params.get("token"))
+    if not payload:
         await websocket.close(code=4001, reason="Token inválido")
         return
 
@@ -43,30 +46,40 @@ async def dashboard_ws(websocket: WebSocket):
 
 @router.websocket("/terminal/{vm_id}")
 async def terminal_ws(websocket: WebSocket, vm_id: int):
-    token = websocket.query_params.get("token")
-    if not token:
-        await websocket.close(code=4001, reason="Token requerido")
-        return
-
-    try:
-        payload = decode_token(token)
-        if payload.get("type") != "access":
-            await websocket.close(code=4001, reason="Token inválido")
-            return
-    except Exception:
+    payload = _verify_ws_token(websocket.query_params.get("token"))
+    if not payload:
         await websocket.close(code=4001, reason="Token inválido")
         return
+
+    # Verificar rol desde el payload del token
+    role = payload.get("role", "")
+    username = payload.get("sub", "")
 
     ssh_user = VM_SSH_USER
 
     async with async_session() as session:
+        from sqlalchemy.orm import selectinload
         result = await session.execute(
-            select(VirtualMachine).where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
+            select(VirtualMachine)
+            .options(selectinload(VirtualMachine.owner))
+            .where(VirtualMachine.id == vm_id, VirtualMachine.deleted_at.is_(None))
         )
         vm = result.scalar_one_or_none()
         if not vm:
             await websocket.close(code=4004, reason="VM no encontrada")
             return
+
+        # Ownership check for profesor role
+        if role == "profesor" and vm.owner_id is not None:
+            # Look up user by username to get their ID
+            from app.models import User
+            user_result = await session.execute(
+                select(User.id).where(User.username == username, User.deleted_at.is_(None))
+            )
+            user_row = user_result.scalar_one_or_none()
+            if not user_row or vm.owner_id != user_row:
+                await websocket.close(code=4003, reason="No autorizado para esta VM")
+                return
 
         if vm.current_state != "running":
             await websocket.close(code=4004, reason="VM no está encendida")

@@ -1,9 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api } from '../services/api'
+import { useToast } from '../hooks/useToast'
 import type { UserResponse, UserCreate, UserUpdate } from '../types'
 import ContentHeader from '../components/ContentHeader'
+import { TableSkeleton } from '../components/Skeleton'
 
 export default function Users() {
+  const { addToast } = useToast()
   const [users, setUsers] = useState<UserResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -12,21 +15,31 @@ export default function Users() {
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [form, setForm] = useState({ username: '', password: '', full_name: '', email: '', role_name: 'profesor' })
   const [saving, setSaving] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
 
-  const loadUsers = useCallback(async () => {
-    setLoading(true)
-    try {
-      const data = await api.users.list()
-      setUsers(data)
-      setError('')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar usuarios')
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    const loadUsers = async () => {
+      setLoading(true)
+      try {
+        const data = await api.users.list({ signal: controller.signal })
+        if (controller.signal.aborted) return
+        setUsers(data)
+        setError('')
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return
+        setError(err instanceof Error ? err.message : 'Error al cargar usuarios')
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
+      }
     }
-  }, [])
 
-  useEffect(() => { loadUsers() }, [loadUsers])
+    loadUsers()
+    return () => controller.abort()
+  }, [])
 
   const openCreate = () => {
     setForm({ username: '', password: '', full_name: '', email: '', role_name: 'profesor' })
@@ -40,6 +53,7 @@ export default function Users() {
   }
 
   const handleSave = async () => {
+    const controller = new AbortController()
     setSaving(true)
     setError('')
     try {
@@ -51,38 +65,60 @@ export default function Users() {
           email: form.email || undefined,
           role_name: form.role_name,
         }
-        await api.users.create(body)
+        await api.users.create(body, { signal: controller.signal })
+        if (controller.signal.aborted) return
+        addToast('success', 'Usuario creado correctamente')
       } else if (editUser) {
         const body: UserUpdate = {
           full_name: form.full_name || undefined,
           email: form.email || undefined,
           role_name: form.role_name,
         }
-        await api.users.update(editUser.id, body)
+        await api.users.update(editUser.id, body, { signal: controller.signal })
+        if (controller.signal.aborted) return
+        addToast('success', 'Usuario actualizado correctamente')
       }
       setShowModal(null)
       setEditUser(null)
-      await loadUsers()
+      abortRef.current?.abort()
+      const loadController = new AbortController()
+      abortRef.current = loadController
+      const data = await api.users.list({ signal: loadController.signal })
+      if (!loadController.signal.aborted) setUsers(data)
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Error al guardar')
     } finally {
-      setSaving(false)
+      if (!controller.signal.aborted) setSaving(false)
     }
   }
 
   const handleDelete = async () => {
     if (deleteId === null) return
+    const controller = new AbortController()
     try {
-      await api.users.delete(deleteId)
+      await api.users.delete(deleteId, { signal: controller.signal })
+      if (controller.signal.aborted) return
+      addToast('success', 'Usuario eliminado correctamente')
       setDeleteId(null)
-      await loadUsers()
+      abortRef.current?.abort()
+      const loadController = new AbortController()
+      abortRef.current = loadController
+      const data = await api.users.list({ signal: loadController.signal })
+      if (!loadController.signal.aborted) setUsers(data)
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Error al eliminar')
     }
   }
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64 text-slate-500">Cargando...</div>
+    return (
+      <div className="space-y-6">
+        <ContentHeader title="Usuarios" icon="fa-users-gear" />
+        <TableSkeleton rows={5} cols={6} />
+      </div>
+    )
   }
 
   return (
@@ -102,6 +138,12 @@ export default function Users() {
         </div>
       )}
 
+      {users.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 text-center">
+          <i className="fas fa-users text-3xl text-slate-300 mb-2"></i>
+          <p className="text-sm text-slate-500">No hay usuarios registrados</p>
+        </div>
+      ) : (
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-600 uppercase text-xs">
@@ -150,7 +192,7 @@ export default function Users() {
             ))}
           </tbody>
         </table>
-      </div>
+      </div>)}
 
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">

@@ -33,9 +33,6 @@ export default function Assignments() {
   const [importResult, setImportResult] = useState<{ created: number; assigned: number; unassigned: number; errors: string[]; created_ids: number[] } | null>(null)
   const [csvImporting, setCsvImporting] = useState(false)
   const [capacityWarning, setCapacityWarning] = useState<string | null>(null)
-
-
-
   const TEACHER_VM = 'vhost-10'
   const activePeriodId = selectedPeriodId
   const activePeriodCode = allPeriods.find(p => p.id === selectedPeriodId)?.code ?? currentPeriod?.code ?? '—'
@@ -65,36 +62,45 @@ export default function Assignments() {
       addToast('error', 'Debes seleccionar un estudiante')
       return
     }
+    const controller = new AbortController()
     try {
-      await api.assignments.create({ ...formData, period_id: activePeriodId })
+      await api.assignments.create({ ...formData, period_id: activePeriodId }, { signal: controller.signal })
+      if (controller.signal.aborted) return
       setFormData({ vm_id: 0, student_id: 0 })
       setShowForm(false)
       addToast('success', 'Asignación creada correctamente')
       await loadData(activePeriodId || undefined)
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       addToast('error', err instanceof Error ? err.message : 'Error al crear asignación')
     }
   }
 
   const handleRelease = async (id: number) => {
+    const controller = new AbortController()
     try {
-      await api.assignments.release(id)
+      await api.assignments.release(id, { signal: controller.signal })
+      if (controller.signal.aborted) return
       setConfirmRelease(null)
       addToast('success', 'Asignación liberada')
       await loadData(activePeriodId || undefined)
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       addToast('error', err instanceof Error ? err.message : 'Error al liberar asignación')
     }
   }
 
   const handleBulkRelease = async () => {
+    const controller = new AbortController()
     try {
-      const result = await api.assignments.bulkRelease(Array.from(selectedIds))
+      const result = await api.assignments.bulkRelease(Array.from(selectedIds), { signal: controller.signal })
+      if (controller.signal.aborted) return
       setConfirmBulkRelease(false)
       setSelectedIds(new Set())
       addToast('success', `${result.released} asignaciones liberadas`)
       await loadData(activePeriodId || undefined)
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       addToast('error', err instanceof Error ? err.message : 'Error al liberar asignaciones')
     }
   }
@@ -102,8 +108,10 @@ export default function Assignments() {
   const handleImportCsv = async (file: File) => {
     setCsvImporting(true)
     setCapacityWarning(null)
+    const controller = new AbortController()
     try {
-      const result = await api.students.importCsv(file, activePeriodId || undefined)
+      const result = await api.students.importCsv(file, activePeriodId || undefined, { signal: controller.signal })
+      if (controller.signal.aborted) return
       setImportResult(result)
       addToast('success', `${result.created} creados, ${result.assigned} asignados`)
 
@@ -113,31 +121,37 @@ export default function Assignments() {
 
       await loadData(activePeriodId || undefined)
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       addToast('error', err instanceof Error ? err.message : 'Error al importar')
     } finally {
-      setCsvImporting(false)
+      if (!controller.signal.aborted) setCsvImporting(false)
     }
   }
 
   const handleUndoImport = async () => {
+    const controller = new AbortController()
     try {
       const { created_ids } = importResult!
       const result = await api.students.undoImport({
         student_ids: created_ids,
         period_id: activePeriodId || undefined,
-      })
+      }, { signal: controller.signal })
+      if (controller.signal.aborted) return
       setConfirmUndoImport(false)
       setImportResult(null)
       addToast('success', `Importación revertida: ${result.deleted_students} estudiantes eliminados, ${result.deleted_assignments} asignaciones borradas`)
       await loadData(activePeriodId || undefined)
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       addToast('error', err instanceof Error ? err.message : 'Error al revertir importación')
     }
   }
 
   const handleExportCsv = async () => {
+    const controller = new AbortController()
     try {
-      const blob = await api.assignments.export(activePeriodId)
+      const blob = await api.assignments.export(activePeriodId, { signal: controller.signal })
+      if (controller.signal.aborted) return
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -148,19 +162,23 @@ export default function Assignments() {
       URL.revokeObjectURL(url)
       addToast('success', 'CSV exportado correctamente')
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       addToast('error', err instanceof Error ? err.message : 'Error al exportar CSV')
     }
   }
 
   const handleClosePeriod = async () => {
     if (!activePeriodId) return
+    const controller = new AbortController()
     try {
-      const result = await api.periods.close(activePeriodId)
+      const result = await api.periods.close(activePeriodId, { signal: controller.signal })
+      if (controller.signal.aborted) return
       setConfirmClosePeriod(false)
       addToast('success', `Período finalizado (${result.released_count} asignaciones liberadas)`)    
       await loadData(activePeriodId || undefined)
       await loadPeriods()
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       addToast('error', err instanceof Error ? err.message : 'Error al cerrar período')
     }
   }
@@ -174,40 +192,50 @@ export default function Assignments() {
       await loadData(activePeriodId)
       await loadPeriods()
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       addToast('error', err instanceof Error ? err.message : 'Error al reabrir período')
     }
   }
 
   const handleDeleteStudent = async (studentId: number, studentName: string) => {
     setConfirmDeleteStudent(null)
+    const controller = new AbortController()
     try {
-      await api.students.delete(studentId)
+      await api.students.delete(studentId, { signal: controller.signal })
+      if (controller.signal.aborted) return
       addToast('success', `Estudiante "${studentName}" eliminado`)
       await loadData(activePeriodId || undefined)
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       addToast('error', err instanceof Error ? err.message : 'Error al eliminar estudiante')
     }
   }
 
   const handleDeleteAssignment = async (assignmentId: number) => {
     setConfirmDeleteAssignment(null)
+    const controller = new AbortController()
     try {
-      await api.assignments.delete(assignmentId)
+      await api.assignments.delete(assignmentId, { signal: controller.signal })
+      if (controller.signal.aborted) return
       addToast('success', 'Asignación eliminada')
       await loadData(activePeriodId || undefined)
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       addToast('error', err instanceof Error ? err.message : 'Error al eliminar asignación')
     }
   }
 
   const handleBulkDelete = async () => {
     setConfirmBulkDelete(false)
+    const controller = new AbortController()
     try {
-      const result = await api.assignments.bulkDelete(Array.from(selectedIds))
+      const result = await api.assignments.bulkDelete(Array.from(selectedIds), { signal: controller.signal })
+      if (controller.signal.aborted) return
       setSelectedIds(new Set())
       addToast('success', `${result.deleted} asignaciones eliminadas`)
       await loadData(activePeriodId || undefined)
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       addToast('error', err instanceof Error ? err.message : 'Error al eliminar asignaciones')
     }
   }

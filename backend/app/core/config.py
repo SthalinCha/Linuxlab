@@ -1,9 +1,25 @@
 import os
-import subprocess
-import time
+import logging
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./linuxlab.db")
-SECRET_KEY = os.getenv("SECRET_KEY", "cambiar-en-produccion")
+logger = logging.getLogger(__name__)
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+SECRET_KEY = os.getenv("SECRET_KEY")
+
+if not SECRET_KEY or SECRET_KEY == "cambiar-por-clave-segura-aqui":
+    raise RuntimeError(
+        "SECRET_KEY no configurada o es un placeholder. "
+        "Genera una clave con: openssl rand -hex 32 "
+        "y agregala al archivo .env como SECRET_KEY=<tu-clave>"
+    )
+
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL no configurada. "
+        "Agregala al archivo .env, ej: "
+        "DATABASE_URL=mysql+aiomysql://user:pass@127.0.0.1:3306/linuxlab"
+    )
+
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", '["http://localhost:5173"]')
@@ -16,30 +32,14 @@ STORAGE_PATH = os.getenv("STORAGE_PATH", "/var/lib/libvirt/images")
 VM_SSH_USER = os.getenv("VM_SSH_USER", "estudiante")
 EMAIL_DOMAIN = os.getenv("EMAIL_DOMAIN", "linuxlab.local")
 
-_host_ip_cache: str | None = None
-_host_ip_cache_ts: float = 0
-_HOST_IP_CACHE_TTL = 60
+HOST_IP = os.getenv("HOST_IP")
+if not HOST_IP:
+    raise RuntimeError(
+        "HOST_IP no configurada. "
+        "Agregala al archivo .env con la IP real del servidor, ej: "
+        "HOST_IP=192.168.1.100"
+    )
 
 
 def get_host_ip() -> str:
-    global _host_ip_cache, _host_ip_cache_ts
-    now = time.time()
-    if _host_ip_cache is not None and now - _host_ip_cache_ts < _HOST_IP_CACHE_TTL:
-        return _host_ip_cache
-    override = os.getenv("HOST_IP")
-    if override:
-        _host_ip_cache = override
-        _host_ip_cache_ts = now
-        return override
-    try:
-        r = subprocess.run(
-            ["hostname", "-I"], capture_output=True, text=True, timeout=5
-        )
-        ip = r.stdout.strip().split()[0] if r.stdout.strip() else ""
-        if ip:
-            _host_ip_cache = ip
-            _host_ip_cache_ts = now
-            return ip
-    except Exception:
-        pass
-    return "127.0.0.1"
+    return HOST_IP

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api } from '../services/api'
 import ContentHeader from '../components/ContentHeader'
 import { TableSkeleton } from '../components/Skeleton'
@@ -20,42 +20,58 @@ export default function Students() {
   const [loadingPeriods, setLoadingPeriods] = useState(true)
   const [loadingAssignments, setLoadingAssignments] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  const loadPeriods = async () => {
-    setLoadingPeriods(true)
-    try {
-      const items = await api.assignments.periods()
-      setPeriodInfos(items)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar períodos')
-    } finally {
-      setLoadingPeriods(false)
-    }
-  }
-
-  const loadAssignments = async (period: PeriodInfo) => {
-    setLoadingAssignments(true)
-    setAssignments([])
-    try {
-      const [result, v, s] = await Promise.all([
-        api.assignments.list(false, period.id),
-        api.vms.listLight(),
-        api.students.list(),
-      ])
-      if (result?.items && Array.isArray(result.items)) setAssignments(result.items)
-      if (Array.isArray(v)) setVms(v)
-      if (Array.isArray(s)) setStudents(s)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar asignaciones')
-    } finally {
-      setLoadingAssignments(false)
-    }
-  }
-
-  useEffect(() => { loadPeriods() }, [])
+  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    if (selectedPeriod) loadAssignments(selectedPeriod)
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    const loadPeriods = async () => {
+      setLoadingPeriods(true)
+      try {
+        const items = await api.assignments.periods({ signal: controller.signal })
+        if (controller.signal.aborted) return
+        setPeriodInfos(items)
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return
+        setError(err instanceof Error ? err.message : 'Error al cargar períodos')
+      } finally {
+        if (!controller.signal.aborted) setLoadingPeriods(false)
+      }
+    }
+
+    loadPeriods()
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    if (!selectedPeriod) return
+    const controller = new AbortController()
+
+    const loadAssignments = async (period: PeriodInfo) => {
+      setLoadingAssignments(true)
+      setAssignments([])
+      try {
+        const [result, v, s] = await Promise.all([
+          api.assignments.list(false, period.id, { signal: controller.signal }),
+          api.vms.listLight({ signal: controller.signal }),
+          api.students.list(undefined, { signal: controller.signal }),
+        ])
+        if (controller.signal.aborted) return
+        if (result?.items && Array.isArray(result.items)) setAssignments(result.items)
+        if (Array.isArray(v)) setVms(v)
+        if (Array.isArray(s)) setStudents(s)
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return
+        setError(err instanceof Error ? err.message : 'Error al cargar asignaciones')
+      } finally {
+        if (!controller.signal.aborted) setLoadingAssignments(false)
+      }
+    }
+
+    loadAssignments(selectedPeriod)
+    return () => controller.abort()
   }, [selectedPeriod])
 
   const getStudentName = (id: number) =>
@@ -99,6 +115,11 @@ export default function Students() {
               <div className="h-3 w-24 bg-slate-200 rounded"></div>
             </div>
           ))}
+        </div>
+      ) : periodInfos.filter(p => /^P\d+$/.test(p.period_name) && (p.is_active || p.closed_at)).length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 text-center">
+          <i className="fas fa-calendar text-3xl text-slate-300 mb-2"></i>
+          <p className="text-sm text-slate-500">No hay períodos activos o cerrados</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

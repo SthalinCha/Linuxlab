@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { api } from '../services/api'
 
 interface Props {
@@ -13,6 +13,7 @@ export default function ChangePasswordModal({ open, onClose }: Props) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [changing, setChanging] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
 
   if (!open) return null
 
@@ -31,17 +32,22 @@ export default function ChangePasswordModal({ open, onClose }: Props) {
       setError('La nueva contraseña debe tener al menos 6 caracteres')
       return
     }
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     setChanging(true)
     try {
-      await api.auth.changePassword(currentPassword, newPassword)
+      await api.auth.changePassword(currentPassword, newPassword, { signal: controller.signal })
+      if (controller.signal.aborted) return
       setSuccess('Contraseña actualizada correctamente')
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Error al cambiar contraseña')
     } finally {
-      setChanging(false)
+      if (!controller.signal.aborted) setChanging(false)
     }
   }
 

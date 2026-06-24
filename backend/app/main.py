@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import HTTPException
 from sqlalchemy import text
-from app.core.config import CORS_ORIGINS, SECRET_KEY
+from app.core.config import CORS_ORIGINS
 from app.database.session import engine
 from app.api.v1 import auth, dashboard, vms, students, assignments, periods, audit, ws, iptables, host, users, courses
 from app.services.metrics_collector import collector
@@ -22,12 +22,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="LinuxLab API", version="1.0.0")
-
-if not SECRET_KEY or SECRET_KEY == "cambiar-en-produccion":
-    logger.warning(
-        "SECRET_KEY no configurada — usando valor inseguro por defecto. "
-        "Configure la variable de entorno SECRET_KEY para producción."
-    )
 
 app.add_middleware(
     CORSMiddleware,

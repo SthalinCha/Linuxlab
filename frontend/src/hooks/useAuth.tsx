@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { api } from '../services/api'
 
 interface AuthUser {
@@ -31,7 +31,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
 
+  const loginAbortRef = useRef<AbortController | null>(null)
+
   const logout = useCallback(() => {
+    loginAbortRef.current?.abort()
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
     localStorage.removeItem('admin_username')
@@ -39,7 +42,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = useCallback(async (username: string, password: string) => {
-    const res = await api.auth.login(username, password)
+    loginAbortRef.current?.abort()
+    const controller = new AbortController()
+    loginAbortRef.current = controller
+    const res = await api.auth.login(username, password, { signal: controller.signal })
+    if (controller.signal.aborted) return
     localStorage.setItem('access_token', res.access_token)
     localStorage.setItem('refresh_token', res.refresh_token)
     localStorage.setItem('admin_username', username)

@@ -31,7 +31,11 @@ export default function Layout() {
 
   useEffect(() => {
     if (!isAdmin) return
-    api.host.get().then(h => setHasLibvirt(h.has_libvirt)).catch(() => {})
+    const controller = new AbortController()
+    api.host.get({ signal: controller.signal })
+      .then(h => { if (!controller.signal.aborted) setHasLibvirt(h.has_libvirt) })
+      .catch(() => {})
+    return () => controller.abort()
   }, [isAdmin])
 
   const navItems = useMemo(() => {
@@ -39,7 +43,8 @@ export default function Layout() {
     return PROFESOR_NAV
   }, [isAdmin])
 
-  const username = user?.username || 'Admin'
+  const username = user?.username || ''
+  const roleLabel = user?.role === 'admin' ? 'Admin' : user?.role === 'profesor' ? 'Profesor' : ''
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -116,6 +121,17 @@ export default function Layout() {
 
             {dropdownOpen && (
               <div className="absolute right-0 mt-1 w-52 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50">
+                <div className="px-4 py-2 text-xs text-slate-500 flex items-center justify-between">
+                  <span>{username}</span>
+                  {roleLabel && (
+                    <span className={`inline-block px-1.5 py-0.5 rounded text-[0.65rem] font-semibold uppercase ${
+                      roleLabel === 'Admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {roleLabel}
+                    </span>
+                  )}
+                </div>
+                <hr className="my-1 border-slate-200" />
                 <button
                   onClick={() => { setDropdownOpen(false); setShowChangePassword(true) }}
                   className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
@@ -203,7 +219,16 @@ export default function Layout() {
                 </svg>
                 Cerrar sesión
               </button>
-              <div className="px-4 py-2 text-xs text-slate-500">{username}</div>
+              <div className="px-4 py-2 text-xs text-slate-500 flex items-center justify-between">
+                <span>{username}</span>
+                {roleLabel && (
+                  <span className={`inline-block px-1.5 py-0.5 rounded text-[0.6rem] font-semibold uppercase ${
+                    roleLabel === 'Admin' ? 'bg-purple-900/50 text-purple-300' : 'bg-blue-900/50 text-blue-300'
+                  }`}>
+                    {roleLabel}
+                  </span>
+                )}
+              </div>
             </div>
           </aside>
         </div>

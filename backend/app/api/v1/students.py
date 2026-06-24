@@ -308,4 +308,5 @@ async def student_history(
     query = query.where(VMAssignment.vm.has(owner_id=user.id))
     query = query.order_by(VMAssignment.assigned_at.desc())
     result = await session.execute(query)
-    return result.scalars().all()
+    items = result.scalars().all()
+    return {"items": items}

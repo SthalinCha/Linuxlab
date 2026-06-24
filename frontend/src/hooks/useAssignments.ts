@@ -16,6 +16,7 @@ export function useAssignments() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const loadPeriodsAbortRef = useRef<AbortController | null>(null)
 
   const totalPages = Math.max(1, Math.ceil(totalAssignments / PAGE_SIZE))
 
@@ -56,8 +57,17 @@ export function useAssignments() {
   }, [page, selectedPeriodId])
 
   const loadPeriods = useCallback(async () => {
+    loadPeriodsAbortRef.current?.abort()
+    const controller = new AbortController()
+    loadPeriodsAbortRef.current = controller
+    const { signal } = controller
+
     try {
-      const [list, cp] = await Promise.all([api.periods.list(), api.periods.current()])
+      const [list, cp] = await Promise.all([
+        api.periods.list({ signal }),
+        api.periods.current({ signal }),
+      ])
+      if (signal.aborted) return
       setAllPeriods(list)
       if (cp) setCurrentPeriod(cp)
     } catch (err) {
@@ -78,11 +88,14 @@ export function useAssignments() {
   }, [])
 
   const handleActivatePeriod = useCallback(async (periodId: number) => {
+    const controller = new AbortController()
     try {
-      await api.periods.activate(periodId)
+      await api.periods.activate(periodId, { signal: controller.signal })
+      if (controller.signal.aborted) return
       setPage(0)
       setSelectedPeriodId(periodId)
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Error al activar período')
     }
   }, [])
@@ -91,7 +104,10 @@ export function useAssignments() {
 
   useEffect(() => {
     loadPeriods()
-    return () => abortRef.current?.abort()
+    return () => {
+      loadPeriodsAbortRef.current?.abort()
+      abortRef.current?.abort()
+    }
   }, [loadPeriods])
 
   useEffect(() => {

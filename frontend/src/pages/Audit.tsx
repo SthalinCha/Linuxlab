@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api } from '../services/api'
 import type { AuditLog } from '../types'
 import ContentHeader from '../components/ContentHeader'
@@ -29,23 +29,31 @@ export default function Audit() {
   const [filter, setFilter] = useState('')
   const [page, setPage] = useState(0)
   const limit = 50
+  const abortRef = useRef<AbortController | null>(null)
 
-  const loadLogs = async () => {
+  const loadLogs = async (currentFilter: string, currentPage: number) => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
     setLoading(true)
     try {
-      const res = await api.audit.list(filter || undefined, limit, page * limit)
+      const res = await api.audit.list(currentFilter || undefined, limit, currentPage * limit, { signal: controller.signal })
+      if (controller.signal.aborted) return
       setLogs(res.items)
       setTotal(res.total)
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Error al cargar logs')
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) setLoading(false)
     }
   }
 
   useEffect(() => {
     setPage(0)
-    loadLogs()
+    loadLogs(filter, 0)
+    return () => abortRef.current?.abort()
   }, [filter])
 
   return (
@@ -76,6 +84,11 @@ export default function Audit() {
 
       {loading ? (
         <div className="text-center text-slate-500 py-12">Cargando...</div>
+      ) : logs.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 text-center">
+          <i className="fas fa-clipboard-list text-3xl text-slate-300 mb-2"></i>
+          <p className="text-sm text-slate-500">No hay eventos de auditoría{filter ? ` para "${filter}"` : ''}</p>
+        </div>
       ) : (
         <>
           <div className="text-sm text-slate-500 mb-2">
@@ -117,7 +130,7 @@ export default function Audit() {
           </div>
           <div className="flex justify-between items-center">
             <button
-              onClick={() => { setPage(p => Math.max(0, p - 1)); loadLogs() }}
+              onClick={() => { const next = Math.max(0, page - 1); setPage(next); loadLogs(filter, next) }}
               disabled={page === 0}
               className="px-3 py-1.5 text-sm bg-slate-100 rounded disabled:opacity-50 hover:bg-slate-200"
             >
@@ -127,7 +140,7 @@ export default function Audit() {
               Página {page + 1} de {Math.max(1, Math.ceil(total / limit))}
             </span>
             <button
-              onClick={() => { setPage(p => p + 1); loadLogs() }}
+              onClick={() => { const next = page + 1; setPage(next); loadLogs(filter, next) }}
               disabled={(page + 1) * limit >= total}
               className="px-3 py-1.5 text-sm bg-slate-100 rounded disabled:opacity-50 hover:bg-slate-200"
             >

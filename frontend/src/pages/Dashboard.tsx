@@ -1,10 +1,12 @@
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip } from 'recharts'
+import { useState } from 'react'
 import { useDashboard } from '../hooks/useDashboard'
 import ContentHeader from '../components/ContentHeader'
 import { SkeletonBar, StatsSkeleton } from '../components/Skeleton'
 
 export default function Dashboard() {
   const { data, history, topConsumers, error } = useDashboard()
+  const [dismissedError, setDismissedError] = useState(false)
 
   if (!data) {
     return (
@@ -37,9 +39,9 @@ export default function Dashboard() {
     <div className="space-y-6">
       <ContentHeader title="Dashboard" icon="fa-chart-pie" />
 
-      {error && (
+      {error && !dismissedError && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded text-sm">
-          {error}
+          {error} <button onClick={() => setDismissedError(true)} className="float-right font-bold">&times;</button>
         </div>
       )}
 

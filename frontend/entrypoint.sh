@@ -1,10 +1,12 @@
 #!/bin/sh
 set -e
 
-until getent hosts backend > /dev/null 2>&1; do
-  echo "Esperando a que backend sea resoluble..."
-  sleep 1
-done
+# Substitute environment variables in nginx template
+VM_SUBNET="${VM_SUBNET:-192.168.122}"
+export VM_SUBNET
 
-echo "backend resuelto — iniciando nginx"
+envsubst '${VM_SUBNET}' < /etc/nginx/nginx.conf.template > /etc/nginx/conf.d/default.conf
+
+echo "nginx config generated with VM_SUBNET=${VM_SUBNET}"
+
 exec nginx -g "daemon off;"

@@ -108,12 +108,21 @@ async def close_period(
 @router.put("/{period_id}/activate")
 async def activate_period(
     period_id: int,
+    request: Request,
     session: AsyncSession = Depends(get_session),
     user: User = Depends(profesor_only),
 ):
+    from app.models import Course
+
     period = await session.get(Period, period_id)
     if not period:
         raise HTTPException(status_code=404, detail="Período no encontrado")
+
+    # Ownership check: si el período tiene course_id, verificar que el curso pertenezca al usuario
+    if period.course_id is not None:
+        course = await session.get(Course, period.course_id)
+        if course and course.profesor_id != user.id:
+            raise HTTPException(status_code=403, detail="No autorizado para activar este período")
 
     stmt = (
         Period.__table__.update()
@@ -127,7 +136,7 @@ async def activate_period(
     await session.commit()
     await session.refresh(period)
 
-    await _log_activate(session, period, user.username)
+    await _log_activate(session, period, user.username, ip=_ip(request))
 
     return period
 
@@ -136,10 +145,12 @@ async def _log_activate(
     session: AsyncSession,
     period: Period,
     username: str,
+    ip: str = "",
 ):
     from app.core.audit import log_event
     await log_event(
         session, "period_activate", username,
         f"Activó período {period.code}",
         "period", period.id,
+        ip_address=ip,
     )
