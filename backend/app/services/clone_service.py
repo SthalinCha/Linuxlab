@@ -264,7 +264,7 @@ class CloneService:
 
         r = await asyncio.to_thread(_libvirt_clone)
         if r["success"]:
-            await _customize_guest(r["vol_path"], new_name)
+            await _customize_guest(r["vol_path"], new_name, initramfs=True)
             del r["vol_path"]
         return r
 
@@ -401,7 +401,7 @@ class CloneService:
 
         r = await asyncio.to_thread(_libvirt_recreate)
         if r["success"]:
-            await _customize_guest(r["vol_path"], vm_name)
+            await _customize_guest(r["vol_path"], vm_name, initramfs=True)
             del r["vol_path"]
         return r
 
