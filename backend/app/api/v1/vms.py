@@ -43,6 +43,7 @@ async def _clone_vm_task(
     template_name: str | None = None,
     vcpus: int | None = None,
     ram_mb: int | None = None,
+    disk_gb: int | None = None,
     prefix: str = "vhost",
     username: str = "",
     ip_address: str = "",
@@ -52,7 +53,7 @@ async def _clone_vm_task(
         async with async_session() as task_session:
             r = await _create_single_vm(
                 task_session, clone_service, num,
-                template_name=template_name, vcpus=vcpus, ram_mb=ram_mb,
+                template_name=template_name, vcpus=vcpus, ram_mb=ram_mb, disk_gb=disk_gb,
                 prefix=prefix, username=username, ip_address=ip_address, owner_id=owner_id,
             )
     return {"number": num, "name": r["name"], "status": r["status"], "reason": r["reason"]}
@@ -126,7 +127,7 @@ async def _create_single_vm(
 
     ram_mb = ram_mb or _default_ram
     vcpus = vcpus or _default_vcpus
-    disk_gb = disk_gb or _default_disk
+    _req_disk = disk_gb
     tpl = template_name or _default_template
     name = f"{prefix}-{num}"
     mac = mac_from_num(num)
@@ -144,9 +145,12 @@ async def _create_single_vm(
         new_mac=mac,
         memory_mb=ram_mb,
         vcpus=vcpus,
+        disk_gb=_req_disk,
     )
     if not r["success"]:
         return {"vm": None, "status": "error", "reason": r["error"], "name": name, "number": num}
+
+    disk_gb_final = r.get("disk_gb", _req_disk or _default_disk)
 
     if existing_vm:
         existing_vm.template_name = tpl
@@ -154,7 +158,7 @@ async def _create_single_vm(
         existing_vm.ip_address = f"{VM_SUBNET}.{num}"
         existing_vm.vcpus = vcpus
         existing_vm.ram_mb = ram_mb
-        existing_vm.disk_gb = disk_gb
+        existing_vm.disk_gb = disk_gb_final
         existing_vm.current_state = "shut off"
         existing_vm.ports = build_ports(num)
         existing_vm.deleted_at = None
@@ -168,7 +172,7 @@ async def _create_single_vm(
             name=name, template_name=tpl, mac_address=mac,
             ip_address=f"{VM_SUBNET}.{num}",
             vcpus=vcpus, ram_mb=ram_mb,
-            disk_gb=disk_gb, current_state="shut off",
+            disk_gb=disk_gb_final, current_state="shut off",
             ports=build_ports(num),
             owner_id=owner_id,
         )
@@ -362,6 +366,7 @@ async def clone_vm(
         template_name=body.template_name,
         vcpus=body.vcpus,
         ram_mb=body.ram_mb,
+        disk_gb=body.disk_gb,
         username=user.username,
         ip_address=_ip_from_request(request),
         owner_id=user.id,
@@ -394,6 +399,7 @@ async def clone_vm_range(
             template_name=body.template_name,
             vcpus=body.vcpus,
             ram_mb=body.ram_mb,
+            disk_gb=body.disk_gb,
             username=user.username,
             ip_address=_ip_from_request(request),
             owner_id=user.id,
@@ -422,6 +428,7 @@ async def create_lab(
             template_name=body.template_name,
             vcpus=body.vcpus,
             ram_mb=body.ram_mb,
+            disk_gb=body.disk_gb,
             prefix=body.prefix,
             username=user.username,
             ip_address=_ip_from_request(request),

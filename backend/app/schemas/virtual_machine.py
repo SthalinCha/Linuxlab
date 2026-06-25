@@ -95,6 +95,7 @@ class CloneRequest(BaseModel):
     template_name: Optional[str] = None
     vcpus: Optional[int] = None
     ram_mb: Optional[int] = None
+    disk_gb: Optional[int] = None
 
 
 class CloneRangeRequest(BaseModel):
@@ -103,6 +104,7 @@ class CloneRangeRequest(BaseModel):
     template_name: Optional[str] = None
     vcpus: Optional[int] = None
     ram_mb: Optional[int] = None
+    disk_gb: Optional[int] = None
 
 
 class CreateLabRequest(BaseModel):
@@ -112,6 +114,7 @@ class CreateLabRequest(BaseModel):
     template_name: Optional[str] = None
     vcpus: Optional[int] = None
     ram_mb: Optional[int] = None
+    disk_gb: Optional[int] = None
 
 
 class BulkDeleteRequest(BaseModel):

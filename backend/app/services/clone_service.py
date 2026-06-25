@@ -185,7 +185,7 @@ AllowUnencrypted = true
 
 
 class CloneService:
-    async def clone_vm(self, source_name: str, new_name: str, new_mac: str, memory_mb: int = 4096, vcpus: int = 2) -> dict:
+    async def clone_vm(self, source_name: str, new_name: str, new_mac: str, memory_mb: int = 4096, vcpus: int = 2, disk_gb: int | None = None) -> dict:
         if not HAVE_LIBVIRT:
             logger.error("Intento de clonado sin libvirt disponible")
             return {"success": False, "error": "libvirt no está disponible en este servidor"}
@@ -212,8 +212,12 @@ class CloneService:
             except libvirt.libvirtError as e:
                 return {"success": False, "error": f"Volumen plantilla '{template_vol_name}' no encontrado: {e}"}
             template_path = template_vol.path()
+            if disk_gb is None:
+                _disk_bytes = template_vol.info()[1]
+                _disk_gb = _disk_bytes // (1024 ** 3)
+            else:
+                _disk_gb = disk_gb
             new_vol_name = f"{new_name}.qcow2"
-            _disk_gb = get_cached_int("default_vm_disk_gb", 10)
 
             vol_xml = f"""<volume>
   <name>{new_vol_name}</name>
@@ -260,6 +264,7 @@ class CloneService:
                 "mac": new_mac,
                 "path": vol_path,
                 "vol_path": vol_path,
+                "disk_gb": _disk_gb,
             }
 
         r = await asyncio.to_thread(_libvirt_clone)
@@ -295,7 +300,8 @@ class CloneService:
             except libvirt.libvirtError as e:
                 return {"success": False, "error": f"Volumen plantilla '{template_name}.qcow2' no encontrado: {e}"}
             template_path = template_vol.path()
-            _disk_gb = get_cached_int("default_vm_disk_gb", 10)
+            _disk_bytes = template_vol.info()[1]
+            _disk_gb = _disk_bytes // (1024 ** 3)
             vol_name = f"{vm_name}.qcow2"
             temp_vol_name = f"{vm_name}.recreate.qcow2"
 
