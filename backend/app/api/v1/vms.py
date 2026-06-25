@@ -153,7 +153,7 @@ async def _create_single_vm(
     disk_gb_final = r.get("disk_gb", _req_disk or _default_disk)
 
     if existing_vm:
-        existing_vm.template_name = tpl
+        existing_vm.template_name = tpl.upper()
         existing_vm.mac_address = mac
         existing_vm.ip_address = f"{VM_SUBNET}.{num}"
         existing_vm.vcpus = vcpus
@@ -169,7 +169,7 @@ async def _create_single_vm(
         await session.refresh(vm)
     else:
         vm = VirtualMachine(
-            name=name, template_name=tpl, mac_address=mac,
+            name=name, template_name=tpl.upper(), mac_address=mac,
             ip_address=f"{VM_SUBNET}.{num}",
             vcpus=vcpus, ram_mb=ram_mb,
             disk_gb=disk_gb_final, current_state="shut off",
