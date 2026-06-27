@@ -27,23 +27,28 @@ async def list_courses(
 
     result = await session.execute(query)
     courses = result.scalars().all()
+    course_ids = [c.id for c in courses]
+
+    period_counts_rows = await session.execute(
+        select(Period.course_id, func.count(Period.id)).where(
+            Period.course_id.in_(course_ids), Period.deleted_at.is_(None)
+        ).group_by(Period.course_id)
+    )
+    period_counts = dict(period_counts_rows.all())
+
+    student_counts_rows = await session.execute(
+        select(Student.course_id, func.count(Student.id)).where(
+            Student.course_id.in_(course_ids), Student.deleted_at.is_(None)
+        ).group_by(Student.course_id)
+    )
+    student_counts = dict(student_counts_rows.all())
 
     items = []
     for c in courses:
-        period_count = await session.scalar(
-            select(func.count(Period.id)).where(
-                Period.course_id == c.id, Period.deleted_at.is_(None)
-            )
-        )
-        student_count = await session.scalar(
-            select(func.count(Student.id)).where(
-                Student.course_id == c.id, Student.deleted_at.is_(None)
-            )
-        )
         items.append(CourseWithCounts(
             **{k: getattr(c, k) for k in ["id", "name", "code", "description", "profesor_id", "created_at", "updated_at"]},
-            period_count=period_count or 0,
-            student_count=student_count or 0,
+            period_count=period_counts.get(c.id, 0) or 0,
+            student_count=student_counts.get(c.id, 0) or 0,
         ))
 
     return {"items": items, "total": len(items)}
@@ -64,11 +69,11 @@ async def create_course(
     )
     session.add(course)
     await session.commit()
-    await session.refresh(course)
 
     await log_event(session, "course_create", user.username,
                     f"Creó curso {course.name}", "course", course.id,
-                    ip_address=_ip(request))
+                    ip_address=_ip(request),
+                    commit=True)
     return course
 
 
@@ -98,7 +103,8 @@ async def update_course(
     await session.refresh(course)
     await log_event(session, "course_update", user.username,
                     f"Actualizó curso {course.name}", "course", course.id,
-                    ip_address=_ip(request))
+                    ip_address=_ip(request),
+                    commit=True)
     return course
 
 
@@ -114,7 +120,8 @@ async def delete_course(
     await session.commit()
     await log_event(session, "course_delete", user.username,
                     f"Eliminó curso {course.name}", "course", course.id,
-                    ip_address=_ip(request))
+                    ip_address=_ip(request),
+                    commit=True)
     return {"message": "Curso eliminado"}
 
 

@@ -15,8 +15,8 @@ else:
         pool_size=_pool_size,
         max_overflow=_max_overflow,
         pool_timeout=_pool_timeout,
-        # pool_pre_ping intentionally omitted — aiomysql does not support it
-        pool_recycle=3600,
+        pool_pre_ping=True,
+        pool_recycle=300,
     )
 
 engine = create_async_engine(DATABASE_URL, **engine_kwargs)

@@ -109,7 +109,6 @@ async def create_user(
     )
     session.add(new_user)
     await session.commit()
-    await session.refresh(new_user)
 
     result = await session.execute(
         select(User)
@@ -148,7 +147,6 @@ async def update_user(
         u.role_id = role_obj.id
 
     await session.commit()
-    await session.refresh(u)
 
     result = await session.execute(
         select(User)

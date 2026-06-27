@@ -34,6 +34,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     volumes:
       - /var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock:rw
       - /etc/os-release:/host-os-release:ro

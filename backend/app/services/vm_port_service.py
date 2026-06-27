@@ -63,7 +63,8 @@ async def add_port_to_vm(session: AsyncSession, vm_id: int, service: str, port: 
 
     await log_event(session, "port_add", username,
                     f"Añadió puerto {service}:{next_host}→{port} a {vm.name}",
-                    "vm", vm.id, ip_address=ip_address, user_id=user_id)
+                    "vm", vm.id, ip_address=ip_address, user_id=user_id,
+                    commit=True)
     return vm
 
 
@@ -101,7 +102,8 @@ async def remove_port_from_vm(session: AsyncSession, vm_id: int, port_index: int
 
     await log_event(session, "port_remove", username,
                     f"Eliminó puerto {removed.get('service', '?')}:{removed.get('host', '?')} de {vm.name}",
-                    "vm", vm.id, ip_address=ip_address, user_id=user_id)
+                    "vm", vm.id, ip_address=ip_address, user_id=user_id,
+                    commit=True)
     return vm
 
 
@@ -134,5 +136,6 @@ async def bulk_add_ports_to_vm(session: AsyncSession, vm_id: int, ports: list[di
 
     await log_event(session, "ports_bulk_add", username,
                     f"Añadidos {len(ports)} puertos a {vm.name}",
-                    "vm", vm.id, ip_address=ip_address, user_id=user_id)
+                    "vm", vm.id, ip_address=ip_address, user_id=user_id,
+                    commit=True)
     return vm

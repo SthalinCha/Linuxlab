@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,7 +46,7 @@ async def sync_libvirt_domains(session: AsyncSession, setup_iptables: bool = Fal
 
     from app.core.libvirt.vm_manager import get_manager
     mgr = get_manager()
-    domains = mgr.list_domains()
+    domains = await asyncio.to_thread(mgr.list_domains)
     conn = get_connection()
     synced = 0
     removed = 0
@@ -62,6 +63,16 @@ async def sync_libvirt_domains(session: AsyncSession, setup_iptables: bool = Fal
         )
     )
     all_ips = {row[0] for row in ip_result}
+
+    # Batch-load all existing VMs by name to avoid N+1
+    domain_names = [d["name"] for d in domains if d["name"] not in all_template_names]
+    if domain_names:
+        existing_result = await session.execute(
+            select(VirtualMachine).where(VirtualMachine.name.in_(domain_names))
+        )
+        vm_map: dict[str, VirtualMachine] = {vm.name: vm for vm in existing_result.scalars().all()}
+    else:
+        vm_map = {}
 
     for dom_data in domains:
         vm_name = dom_data["name"]
@@ -97,10 +108,7 @@ async def sync_libvirt_domains(session: AsyncSession, setup_iptables: bool = Fal
         template_name = get_cached_str("default_template", "ubuntu-server-main")
         disk_gb = get_cached_int("default_vm_disk_gb", 10)
 
-        existing = await session.execute(
-            select(VirtualMachine).where(VirtualMachine.name == vm_name)
-        )
-        vm = existing.scalar_one_or_none()
+        vm = vm_map.get(vm_name)
 
         if vm:
             vm.mac_address = mac

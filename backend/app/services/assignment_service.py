@@ -122,6 +122,7 @@ async def create_assignment(
         f"Asignó {vm_label} a {student.full_name} ({period.code})",
         "assignment", assignment.id, ip_address=ip,
         user_id=user.id if user else None,
+        commit=True,
     )
     return assignment
 
@@ -158,6 +159,7 @@ async def release_assignment(
         f"Liberó VM#{vm_id} (asignación #{assignment_id})",
         "assignment", assignment.id, ip_address=ip,
         user_id=user.id if user else None,
+        commit=True,
     )
     return {"message": "Asignación liberada"}
 
@@ -269,6 +271,7 @@ async def auto_assign(
             "assignment", a.id, ip_address=ip, user_id=user_id,
         )
         created.append({"student": student.full_name, "vm": vm.name})
+    await session.commit()
 
     remaining = max(0, len(unassigned) - len(created))
     return {
@@ -306,6 +309,7 @@ async def batch_create(
         )
         student_map = {s.id: s for s in result.scalars().all()}
 
+    assignments: list[tuple[VMAssignment, Student, VirtualMachine]] = []
     for item in items:
         vm = vm_map.get(item.vm_id)
         student = student_map.get(item.student_id)
@@ -333,7 +337,11 @@ async def batch_create(
             assigned_by=assigned_by,
         )
         session.add(assignment)
-        await session.flush()
+        assignments.append((assignment, student, vm))
+
+    await session.flush()
+
+    for assignment, student, vm in assignments:
         await log_event(
             session, "assignment_create", username,
             f"Asignación manual: {vm.name} → {student.full_name}",
@@ -341,6 +349,7 @@ async def batch_create(
             user_id=user.id if user else None,
         )
         created.append({"student": student.full_name, "vm": vm.name})
+    await session.commit()
     return {"created": len(created), "assignments": created, "errors": errors, "unassigned_students": 0}
 
 
@@ -416,6 +425,7 @@ async def close_period(
         "period", period.id, ip_address=ip,
         details={"released_count": len(active)},
         user_id=user_id,
+        commit=True,
     )
 
     return {

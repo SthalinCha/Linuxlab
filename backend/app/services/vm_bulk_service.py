@@ -35,7 +35,8 @@ async def delete_vm_by_id(session: AsyncSession, vm_id: int, vm_manager, clone_s
     vm.soft_delete()
     await session.commit()
     await log_event(session, "vm_delete", username, f"Eliminó VM {vm.name}",
-                    "vm", vm.id, ip_address=ip_address, user_id=user_id)
+                    "vm", vm.id, ip_address=ip_address, user_id=user_id,
+                    commit=True)
     return {"message": f"VM {vm.name} eliminada"}
 
 
@@ -80,7 +81,8 @@ async def bulk_delete_vms(session: AsyncSession, vm_ids: list[int],
                     vm2.soft_delete()
                     await task_session.commit()
                     await log_event(task_session, "vm_delete", username, f"Eliminó VM {vm2.name} (masivo)",
-                                    "vm", vm2.id, ip_address=ip_address, user_id=user_id)
+                                    "vm", vm2.id, ip_address=ip_address, user_id=user_id,
+                                    commit=True)
                 return {"id": vm_id, "name": vm.name, "status": "deleted"}
 
     tasks = [_delete_one(vm_id) for vm_id in vm_ids]
@@ -129,7 +131,6 @@ async def bulk_action_vms(session: AsyncSession, vm_ids: list[int], action: str,
     results = [_r if not isinstance(_r, Exception) else {"id": vm_id, "status": "error"}
                for vm_id, _r in zip(vm_ids, results)]
 
-    await session.commit()
     for r in results:
         if r["status"] == "ok":
             vm = vm_map.get(r["id"])
@@ -137,5 +138,6 @@ async def bulk_action_vms(session: AsyncSession, vm_ids: list[int], action: str,
                 await log_event(session, f"vm_{action}", username,
                                 f"{action} masivo en {vm.name}",
                                 "vm", vm.id, ip_address=ip_address, user_id=user_id)
+    await session.commit()
     return results
 

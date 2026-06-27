@@ -24,26 +24,35 @@ if [ -z "$HOST_IP" ]; then
 fi
 
 # ── Wait for database ────────────────────────────────
-echo "Esperando a la base de datos..."
-for i in $(seq 1 30); do
-  if python -c "
-import asyncio
-from app.database.session import engine
-from sqlalchemy import text
-async def check():
-    async with engine.connect() as conn:
-        await conn.execute(text('SELECT 1'))
-asyncio.run(check())
-" 2>/dev/null; then
-    echo "Base de datos lista después de ${i}s"
-    break
-  fi
-  if [ "$i" -eq 30 ]; then
-    echo "FATAL: Base de datos no disponible después de 30 intentos"
-    exit 1
-  fi
-  sleep 1
-done
+echo "Esperando a la base de datos... (${DATABASE_URL%%\?*})"
+case "$DATABASE_URL" in
+  sqlite*)
+    DB_PATH="${DATABASE_URL#sqlite+aiosqlite:///}"
+    DB_PATH="${DB_PATH%%\?*}"
+    for i in $(seq 1 30); do
+      [ -f "$DB_PATH" ] && { echo "Base de datos lista después de ${i}s"; break; }
+      [ "$i" -eq 30 ] && { echo "FATAL: Base de datos no disponible después de 30 intentos"; exit 1; }
+      sleep 1
+    done
+    ;;
+  mysql*|mariadb*)
+    DB_HOST="${DATABASE_URL#*@}"
+    DB_HOST="${DB_HOST%%/*}"
+    DB_PORT="${DB_HOST##*:}"
+    case "$DB_PORT" in
+      *.*|*[!0-9]*) DB_PORT=3306 ;;
+    esac
+    DB_HOST="${DB_HOST%:*}"
+    for i in $(seq 1 30); do
+      python3 -c "
+import socket as _s
+_s.create_connection(('$DB_HOST', $DB_PORT), timeout=2).close()
+" 2>/dev/null && { echo "Base de datos lista después de ${i}s"; break; }
+      [ "$i" -eq 30 ] && { echo "FATAL: Base de datos no disponible después de 30 intentos"; exit 1; }
+      sleep 1
+    done
+    ;;
+esac
 
 # ── Bootstrap: schema + seed (idempotent) ────────────
 echo "Ejecutando init_db.py..."
@@ -54,4 +63,4 @@ PYTHONPATH=/app python /app/migrations/seed.py
 
 # ── Start uvicorn ────────────────────────────────────
 echo "Iniciando uvicorn..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1

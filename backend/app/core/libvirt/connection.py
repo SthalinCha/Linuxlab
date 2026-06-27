@@ -20,6 +20,8 @@ _conn: Optional[object] = None
 _conn_lock = threading.Lock()
 _last_health_check: float = 0
 _HEALTH_CHECK_INTERVAL = 5.0
+_MAX_RETRIES = 3
+_RETRY_DELAY = 1.0
 
 
 def _is_connection_alive(conn: object) -> bool:
@@ -57,10 +59,16 @@ def get_connection() -> object:
             _conn = None
 
         logger.info("Conectando a libvirt (%s)", LIBVIRT_URI)
-        _conn = libvirt.open(LIBVIRT_URI)
-        if _conn is None:
-            raise RuntimeError("No se pudo abrir conexión a libvirt")
-        return _conn
+        for attempt in range(_MAX_RETRIES):
+            try:
+                _conn = libvirt.open(LIBVIRT_URI)
+                if _conn is not None:
+                    return _conn
+            except libvirt.libvirtError as e:
+                logger.warning("Intento %d/%d falló: %s", attempt + 1, _MAX_RETRIES, e)
+                if attempt < _MAX_RETRIES - 1:
+                    time.sleep(_RETRY_DELAY * (2 ** attempt))
+        raise RuntimeError("No se pudo abrir conexión a libvirt después de %d intentos" % _MAX_RETRIES)
 
 
 def close_connection():

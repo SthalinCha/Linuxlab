@@ -1,3 +1,4 @@
+import { useRef, useEffect } from 'react'
 import type { VMDisplay } from '../types'
 import IconButton from './IconButton'
 import Gauge from './Gauge'
@@ -30,6 +31,19 @@ export default function VMTable({
   onToggleSelect, onToggleSelectAll, onAction, onDelete, onDestroy,
   onRecreate, onTerminal, onMenuOpen,
 }: Props) {
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (openMenu === null) return
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onMenuOpen(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [openMenu, onMenuOpen])
+
   if (loading) {
     return <TableSkeleton rows={5} cols={6} />
   }
@@ -167,7 +181,7 @@ export default function VMTable({
                             <i className="fas fa-ellipsis-v"></i>
                           </button>
                           {openMenu === vm.id && (
-                            <div className="absolute right-0 mt-1 w-44 bg-white rounded-lg shadow-lg border border-slate-200 z-10 py-1">
+                            <div ref={menuRef} className="absolute right-0 mt-1 w-44 bg-white rounded-lg shadow-lg border border-slate-200 z-10 py-1">
                               <button
                                 onClick={() => { onMenuOpen(null); onDestroy(vm.id) }}
                                 className="block w-full text-left px-4 py-2 text-xs text-red-600 hover:bg-red-50"

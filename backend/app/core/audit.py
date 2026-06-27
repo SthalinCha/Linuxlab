@@ -16,6 +16,7 @@ async def log_event(
     details: Optional[dict] = None,
     ip_address: Optional[str] = None,
     user_id: Optional[int] = None,
+    commit: bool = False,
 ) -> AuditLog:
     if user_id is None and username:
         result = await session.execute(
@@ -34,8 +35,9 @@ async def log_event(
         ip_address=ip_address,
     )
     session.add(entry)
-    await session.commit()
-    await session.refresh(entry)
+    if commit:
+        await session.commit()
+        await session.refresh(entry)
     return entry
 
 
@@ -78,6 +80,7 @@ def audit_log(
                     resource_type=resource_type,
                     resource_id=rid,
                     ip_address=ip,
+                    commit=True,
                 )
             return result
         return wrapper
@@ -100,4 +103,5 @@ async def log_login_event(
         action=action,
         ip_address=ip_address,
         details=details,
+        commit=True,
     )

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { api } from '../services/api'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../hooks/useAuth'
@@ -18,7 +18,6 @@ export default function VMs() {
   const [statusFilter, setStatusFilter] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [openMenu, setOpenMenu] = useState<number | null>(null)
-  const menuRef = useRef<HTMLDivElement | null>(null)
 
   const { allVms, dashboardData, loading, error, refetch: loadVms } = useVMs(statusFilter)
 
@@ -46,16 +45,6 @@ export default function VMs() {
       if (!controller.signal.aborted && res?.items) setTemplateOptions(res.items)
     }).catch(() => {})
     return () => controller.abort()
-  }, [])
-
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpenMenu(null)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
   const doAction = async (id: number, action: string) => {
@@ -265,14 +254,16 @@ export default function VMs() {
     else setSelectedIds(new Set(filteredVms.map(v => v.id)))
   }
 
-  const q = filter.toLowerCase()
-  const filteredVms = q
-    ? allVms.filter(v =>
-        v.name.toLowerCase().includes(q) ||
-        v.ip.toLowerCase().includes(q) ||
-        v.mac.toLowerCase().includes(q)
-      )
-    : allVms
+  const filteredVms = useMemo(() => {
+    const q = filter.toLowerCase()
+    return q
+      ? allVms.filter(v =>
+          v.name.toLowerCase().includes(q) ||
+          v.ip.toLowerCase().includes(q) ||
+          v.mac.toLowerCase().includes(q)
+        )
+      : allVms
+  }, [filter, allVms])
 
   const selectedList = Array.from(selectedIds)
   const runningCount = allVms.filter(v => v.status === 'running').length

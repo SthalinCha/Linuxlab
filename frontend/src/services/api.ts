@@ -8,6 +8,7 @@ import type {
   UserResponse, UserCreate, UserUpdate,
   VMTemplateInfo,
 } from '../types'
+import { cachedRequest, invalidateCache } from './apiCache'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1'
 
@@ -17,7 +18,7 @@ function getTokens() {
   return { access, refresh }
 }
 
-async function request<T>(
+async function fetchWithAuth<T>(
   path: string,
   options: RequestInit = {},
   signal?: AbortSignal,
@@ -64,6 +65,30 @@ async function request<T>(
   }
 
   return res.json()
+}
+
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  signal?: AbortSignal,
+  ttl?: number,
+): Promise<T> {
+  const method = (options?.method || 'GET').toUpperCase()
+  const isMutation = method !== 'GET'
+
+  if (isMutation) {
+    const result = await fetchWithAuth<T>(path, options, signal)
+    invalidateCache('/vms')
+    invalidateCache('/dashboard')
+    invalidateCache('/assignments')
+    invalidateCache('/students')
+    invalidateCache('/audit')
+    invalidateCache('/periods')
+    invalidateCache('/host')
+    return result
+  }
+
+  return cachedRequest<T>(path, options, signal, ttl, fetchWithAuth)
 }
 
 type SignalOption = { signal?: AbortSignal }

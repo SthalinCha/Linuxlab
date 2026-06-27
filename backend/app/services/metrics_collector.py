@@ -156,6 +156,11 @@ class MetricsCollector:
                 ram_gb = round(ram_rss_mb / 1024, 1) if ram_rss_mb else round(ram_used_mb / 1024, 1) if ram_used_mb else 0
             stats.append({"name": name, "cpu_percent": cpu_percent, "ram_gb": ram_gb})
 
+        current_names = {d["name"] for d in domains}
+        for cached_name in list(self._vm_cpu_cache.keys()):
+            if cached_name not in current_names:
+                del self._vm_cpu_cache[cached_name]
+
         top_cpu = sorted(stats, key=lambda x: x["cpu_percent"], reverse=True)[:5]
         top_ram = sorted(stats, key=lambda x: x["ram_gb"], reverse=True)[:5]
 

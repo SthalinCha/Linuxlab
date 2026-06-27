@@ -39,7 +39,6 @@ async def get_current_period(
         )
         session.add(period)
         await session.commit()
-        await session.refresh(period)
     elif not period.is_active:
         await session.execute(
             Period.__table__.update().where(Period.is_active == True).values(is_active=False)
@@ -82,8 +81,6 @@ async def list_periods(
 
     if created:
         await session.commit()
-        for p in created:
-            await session.refresh(p)
         items = created + items
 
     return {"items": items, "total": len(items)}
@@ -153,4 +150,5 @@ async def _log_activate(
         f"Activó período {period.code}",
         "period", period.id,
         ip_address=ip,
+        commit=True,
     )

@@ -1,28 +1,51 @@
+# Python
 backend/venv/
 backend/*.db
-frontend/node_modules/
-frontend/dist/
-.env
-.env.local
 *.pyc
 __pycache__/
 *.egg-info/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/tsconfig.tsbuildinfo
+.vite/
+
+# Variables de entorno
+.env
+.env.local
+
+# Logs
 *.log
-.DS_Store
+
+# Editores
 .vscode/
 .idea/
-frontend/.vite/
 *.swp
 *.swo
+.DS_Store
+
+# Temporales
 /tmp/
 .opencode/
-.vite/
-frontend/tsconfig.tsbuildinfo
+
+# Bases de datos
 linuxlab.db
-template.md
-preparacion_ambiente.md
-pasos.md
-templates.md
-setup.sh
+test.db
+
+# Documentación y archivos locales
+AGENTS.md
+CHANGELOG.md
 Makefile
-linuxlab.service
+setup.sh
+templates.md
+template.md
+pasos.md
+plan_evaluacion.md
+preparacion_ambiente.md
+referencias.bib
+main.tex
+sus_form.tex
+
+

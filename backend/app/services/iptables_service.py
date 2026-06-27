@@ -47,19 +47,23 @@ def _del_rule(table: str, chain: str, args: list[str]) -> tuple[bool, str]:
 async def _add_batch_rule(table: str, chain: str, args: list[str], vm_num: int, desc: str) -> tuple[bool, str]:
     global _pending_batch
     rule_text = f"-A {chain} {' '.join(args)}"
+    should_flush = False
     async with _batch_lock:
         _pending_batch.append((table, rule_text))
-        if len(_pending_batch) >= _BATCH_FLUSH_THRESHOLD:
-            await _flush_batch()
+        should_flush = len(_pending_batch) >= _BATCH_FLUSH_THRESHOLD
+    if should_flush:
+        await _flush_batch()
     return True, f"batched: {desc}"
 
 async def _del_batch_rule(table: str, chain: str, args: list[str], vm_num: int, desc: str) -> tuple[bool, str]:
     global _pending_batch
     rule_text = f"-D {chain} {' '.join(args)}"
+    should_flush = False
     async with _batch_lock:
         _pending_batch.append((table, rule_text))
-        if len(_pending_batch) >= _BATCH_FLUSH_THRESHOLD:
-            await _flush_batch()
+        should_flush = len(_pending_batch) >= _BATCH_FLUSH_THRESHOLD
+    if should_flush:
+        await _flush_batch()
     return True, f"batch-del: {desc}"
 
 def _run_iptables_restore(rules_text: str) -> None:
@@ -77,11 +81,11 @@ def _run_iptables_restore(rules_text: str) -> None:
 
 async def _flush_batch() -> None:
     global _pending_batch
-    if not _pending_batch:
-        return
-
-    batch = _pending_batch.copy()
-    _pending_batch.clear()
+    async with _batch_lock:
+        if not _pending_batch:
+            return
+        batch = _pending_batch.copy()
+        _pending_batch.clear()
 
     tables: dict[str, list[str]] = {}
     for table, rule_text in batch:

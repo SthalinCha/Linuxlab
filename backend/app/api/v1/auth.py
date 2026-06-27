@@ -119,7 +119,6 @@ async def register_user(
     )
     session.add(new_user)
     await session.commit()
-    await session.refresh(new_user)
     return {"id": new_user.id, "username": new_user.username, "full_name": new_user.full_name}
 
 

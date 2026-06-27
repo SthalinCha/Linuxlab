@@ -299,7 +299,8 @@ async def delete_assignment(
     from app.core.audit import log_event
     await log_event(session, "assignment_delete", user.username,
                     f"Eliminó asignación #{assignment_id}",
-                    "assignment", assignment_id, ip_address=_ip(request), user_id=user.id)
+                    "assignment", assignment_id, ip_address=_ip(request), user_id=user.id,
+                    commit=True)
     return {"message": "Asignación eliminada"}
 
 
@@ -315,23 +316,34 @@ async def bulk_delete(
 
     from app.core.audit import log_event
 
+    result = await session.execute(
+        select(VMAssignment).where(VMAssignment.id.in_(body.ids))
+    )
+    assignments = result.scalars().all()
+
+    vm_ids = [a.vm_id for a in assignments if a.vm_id is not None]
+    own_vm_ids: set[int] = set(vm_ids)
+    if vm_ids and user.role.name == "profesor":
+        vm_result = await session.execute(
+            select(VirtualMachine.id).where(
+                VirtualMachine.id.in_(vm_ids),
+                VirtualMachine.owner_id == user.id,
+            )
+        )
+        own_vm_ids = {row[0] for row in vm_result.all()}
+
     deleted = 0
-    for aid in body.ids:
-        assignment = await session.get(VMAssignment, aid)
-        if not assignment:
-            continue
+    for assignment in assignments:
         if user.role.name == "profesor":
-            if assignment.vm_id:
-                vm = await session.get(VirtualMachine, assignment.vm_id)
-                if not vm or vm.owner_id != user.id:
-                    continue
-            else:
+            if not assignment.vm_id:
+                continue
+            if assignment.vm_id not in own_vm_ids:
                 continue
         await session.delete(assignment)
         deleted += 1
         await log_event(session, "assignment_delete", user.username,
-                        f"Eliminó asignación #{aid} (masivo)",
-                        "assignment", aid, ip_address=_ip(request), user_id=user.id)
+                        f"Eliminó asignación #{assignment.id} (masivo)",
+                        "assignment", assignment.id, ip_address=_ip(request), user_id=user.id)
 
     await session.commit()
     return {"deleted": deleted}

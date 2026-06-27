@@ -95,8 +95,8 @@ async def _detect_distro(vol_path: str, default: str = "ubuntu") -> str:
 
 async def _customize_guest(vol_path: str, hostname: str, initramfs: bool = False, template: str | None = None) -> None:
     """Customiza el guest OS dentro de una imagen qcow2: hostname, red DHCP e initramfs."""
-    distro = await _detect_distro(vol_path)
     async with guestfish_semaphore:
+        distro = await _detect_distro(vol_path)
 
         def _run() -> subprocess.CompletedProcess:
             vm_num = hostname.split("-")[-1] if "-" in hostname else "0"

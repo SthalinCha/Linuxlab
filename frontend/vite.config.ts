@@ -14,6 +14,17 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-charts': ['recharts'],
+          'vendor-icons': ['@fortawesome/fontawesome-free'],
+        },
+      },
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',

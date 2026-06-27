@@ -179,7 +179,6 @@ async def _create_single_vm(
         session.add(vm)
         try:
             await session.commit()
-            await session.refresh(vm)
         except IntegrityError:
             await session.rollback()
             return {"vm": None, "status": "error", "reason": "conflicto de integridad", "name": name, "number": num}
@@ -187,7 +186,8 @@ async def _create_single_vm(
     await _auto_iptables(num)
     await log_event(session, "vm_clone", username,
                     f"Creó VM {name} desde plantilla",
-                    "vm", vm.id, ip_address=ip_address, user_id=owner_id)
+                    "vm", vm.id, ip_address=ip_address, user_id=owner_id,
+                    commit=True)
     return {"vm": vm, "status": "created", "reason": None, "name": name, "number": num}
 
 
@@ -277,11 +277,12 @@ async def start_vm(
     vm.current_state = "running"
     await session.commit()
     await log_event(session, "vm_start", user.username, f"Inició VM {vm.name}",
-                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id)
+                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id,
+                    commit=True)
     if vm.ip_address and vm.mac_address:
         try:
             from app.services.libvirt_network import ensure_dhcp_host
-            ensure_dhcp_host(vm.name, vm.mac_address, vm.ip_address)
+            await asyncio.to_thread(ensure_dhcp_host, vm.name, vm.mac_address, vm.ip_address)
         except Exception as e:
             logger.warning("Error asegurando DHCP host para %s: %s", vm.name, e)
     try:
@@ -306,7 +307,8 @@ async def shutdown_vm(
     vm.current_state = "shut off"
     await session.commit()
     await log_event(session, "vm_shutdown", user.username, f"Apagó VM {vm.name}",
-                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id)
+                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id,
+                    commit=True)
     try:
         num = int(vm.name.split("-")[-1])
         await _auto_uniptables(num)
@@ -327,7 +329,8 @@ async def reboot_vm(
     if not ok:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al reiniciar VM")
     await log_event(session, "vm_reboot", user.username, f"Reinició VM {vm.name}",
-                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id)
+                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id,
+                    commit=True)
     return {"message": f"VM {vm.name} reiniciando"}
 
 
@@ -345,7 +348,8 @@ async def destroy_vm(
     vm.current_state = "shut off"
     await session.commit()
     await log_event(session, "vm_destroy", user.username, f"Forzó apagado de VM {vm.name}",
-                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id)
+                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id,
+                    commit=True)
     try:
         num = int(vm.name.split("-")[-1])
         await _auto_uniptables(num)
@@ -482,7 +486,8 @@ async def recreate_vm(
         pass
     await session.commit()
     await log_event(session, "vm_recreate", user.username, f"Recreó VM {vm.name}",
-                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id)
+                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id,
+                    commit=True)
     return {"message": f"VM {vm.name} recreada", "recreation_count": assignment.recreation_count if assignment else 0}
 
 
@@ -531,7 +536,8 @@ async def recreate_vm_range(
                 await task_session.commit()
                 await log_event(task_session, "vm_recreate", user.username,
                                 f"Recreó {vm2.name} (rango)",
-                                "vm", vm2.id, ip_address=_ip_from_request(request), user_id=user.id)
+                                "vm", vm2.id, ip_address=_ip_from_request(request), user_id=user.id,
+                                commit=True)
                 return {"number": num, "name": name, "status": "recreated"}
 
     tasks = [_recreate_task(n) for n in range(body.from_number, body.to_number + 1)]
@@ -691,5 +697,6 @@ async def repair_vms(
             errors.append({"vm": r["name"], "error": r["error"]})
     await log_event(session, "vms_repair", user.username,
                     f"Reparación masiva: {len(repaired)} ok, {len(errors)} errores",
-                    ip_address=_ip_from_request(request), user_id=user.id)
+                    ip_address=_ip_from_request(request), user_id=user.id,
+                    commit=True)
     return {"repaired": len(repaired), "errors": errors, "total": len(vms)}

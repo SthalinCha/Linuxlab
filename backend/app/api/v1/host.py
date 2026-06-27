@@ -54,7 +54,9 @@ async def get_host_info(
     uname = ""
     kernel = ""
     try:
-        r = subprocess.run(["uname", "-a"], capture_output=True, text=True, timeout=5)
+        r = await asyncio.to_thread(
+            subprocess.run, ["uname", "-a"], capture_output=True, text=True, timeout=5
+        )
         uname = r.stdout.strip()
         kernel = uname.split(" ")[2] if len(uname.split(" ")) > 2 else ""
     except Exception:
@@ -64,19 +66,22 @@ async def get_host_info(
 
     bridge = ""
     try:
-        if "virbr0" in psutil.net_if_addrs():
+        addrs = await asyncio.to_thread(psutil.net_if_addrs)
+        if "virbr0" in addrs:
             bridge = "virbr0"
     except Exception:
         pass
 
     ip_principal = ""
     try:
-        r = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=5)
+        r = await asyncio.to_thread(
+            subprocess.run, ["hostname", "-I"], capture_output=True, text=True, timeout=5
+        )
         ip_principal = r.stdout.strip().split()[0] if r.stdout.strip() else ""
     except Exception:
         pass
 
-    swap = psutil.swap_memory()
+    swap = await asyncio.to_thread(psutil.swap_memory)
 
     vcpu_result = await session.execute(
         select(func.coalesce(func.sum(VirtualMachine.vcpus), 0))
@@ -94,7 +99,7 @@ async def get_host_info(
         "hypervisor": "KVM/QEMU",
         "has_libvirt": HAVE_LIBVIRT,
         "cpu_percent": metrics.get("cpu_percent", 0),
-        "cpu_count": psutil.cpu_count(logical=False) or metrics.get("cpu_count", 0),
+        "cpu_count": await asyncio.to_thread(psutil.cpu_count, logical=False) or metrics.get("cpu_count", 0),
         "vcpu_allocated": vcpu_allocated,
         "ram_used_gb": metrics.get("ram_used_gb", 0),
         "ram_total_gb": metrics.get("ram_total_gb", 0),

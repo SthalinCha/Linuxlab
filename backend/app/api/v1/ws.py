@@ -1,6 +1,5 @@
 import asyncio
 import json
-import pexpect
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from app.database.session import async_session
@@ -97,27 +96,28 @@ async def terminal_ws(websocket: WebSocket, vm_id: int):
 
     await websocket.accept()
 
-    child = None
+    process = None
     try:
-        cmd = "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -o LogLevel=ERROR -p {} {}@{}".format(
-            ssh_target[1], ssh_user, ssh_target[0]
+        process = await asyncio.create_subprocess_exec(
+            "ssh", "-tt",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "ServerAliveInterval=30",
+            "-o", "LogLevel=ERROR",
+            "-p", str(ssh_target[1]),
+            f"{ssh_user}@{ssh_target[0]}",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
         )
-        child = pexpect.spawn(cmd, timeout=None, encoding="utf-8", codec_errors="replace")
-        child.delaybeforesend = 0.01
 
-        async def read_child():
+        async def read_stdout():
             try:
                 while True:
-                    try:
-                        data = child.read_nonblocking(size=4096, timeout=0.1)
-                        if data:
-                            await websocket.send_text(data)
-                    except pexpect.TIMEOUT:
-                        await asyncio.sleep(0.05)
-                    except pexpect.EOF:
+                    data = await process.stdout.read(4096)
+                    if not data:
                         break
-                    except Exception:
-                        break
+                    await websocket.send_bytes(data)
             except Exception:
                 pass
 
@@ -125,21 +125,27 @@ async def terminal_ws(websocket: WebSocket, vm_id: int):
             try:
                 while True:
                     data = await websocket.receive_text()
-                    child.send(data)
+                    process.stdin.write(data.encode())
+                    await process.stdin.drain()
             except WebSocketDisconnect:
                 pass
             except Exception:
                 pass
 
-        await asyncio.gather(read_child(), read_ws())
+        await asyncio.gather(read_stdout(), read_ws())
     except Exception:
         pass
     finally:
-        if child:
+        if process:
             try:
-                child.terminate(force=True)
+                process.terminate()
+                await asyncio.wait_for(process.wait(), timeout=5)
             except Exception:
-                pass
+                try:
+                    process.kill()
+                    await process.wait()
+                except Exception:
+                    pass
         try:
             await websocket.close()
         except Exception:

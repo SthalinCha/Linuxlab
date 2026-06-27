@@ -84,10 +84,10 @@ async def create_student(
     )
     session.add(student)
     await session.commit()
-    await session.refresh(student)
     await log_event(session, "student_create", user.username,
                     f"Creó estudiante {student.full_name}",
-                    "student", student.id, ip_address=_ip(request), user_id=user.id)
+                    "student", student.id, ip_address=_ip(request), user_id=user.id,
+                    commit=True)
     return student
 
 
@@ -123,7 +123,8 @@ async def update_student(
     await session.refresh(student)
     await log_event(session, "student_update", user.username,
                     f"Actualizó estudiante {old_name} → {student.full_name}",
-                    "student", student.id, ip_address=_ip(request), user_id=user.id)
+                    "student", student.id, ip_address=_ip(request), user_id=user.id,
+                    commit=True)
     return student
 
 
@@ -144,7 +145,8 @@ async def delete_student(
     await session.commit()
     await log_event(session, "student_deactivate", user.username,
                     f"Desactivó estudiante {student.full_name}",
-                    "student", student.id, ip_address=_ip(request), user_id=user.id)
+                    "student", student.id, ip_address=_ip(request), user_id=user.id,
+                    commit=True)
     return {"message": "Estudiante desactivado"}
 
 
@@ -248,7 +250,8 @@ async def import_csv(
     await log_event(session, "student_import", user.username,
                     f"Importó {created} estudiantes desde CSV ({assigned} asignados, "
                     f"{unassigned} sin VM, errores: {len(errors)})",
-                    "student", ip_address=_ip(request), user_id=user.id)
+                    "student", ip_address=_ip(request), user_id=user.id,
+                    commit=True)
     return {
         "created": created,
         "assigned": assigned,
@@ -269,30 +272,32 @@ async def undo_import(
     if not student_ids:
         return {"deleted_assignments": 0, "deleted_students": 0}
 
-    # Only delete assignments where the VM belongs to the current user
-    deleted_assignments = 0
+    # Delete all assignments for these students (unconditionally — undoing the import)
     result = await session.execute(
-        select(VMAssignment).where(
-            VMAssignment.student_id.in_(student_ids),
-            VMAssignment.vm.has(VirtualMachine.owner_id == user.id),
-        )
+        select(VMAssignment).where(VMAssignment.student_id.in_(student_ids))
     )
-    for a in result.scalars().all():
+    assignments = result.scalars().all()
+    for a in assignments:
         await session.delete(a)
-        deleted_assignments += 1
+    deleted_assignments = len(assignments)
 
     # Only delete students created by the current user
-    deleted_students = 0
-    for sid in student_ids:
-        student = await session.get(Student, sid)
-        if student and student.created_by == user.id:
-            await session.delete(student)
-            deleted_students += 1
+    result = await session.execute(
+        select(Student).where(
+            Student.id.in_(student_ids),
+            Student.created_by == user.id,
+        )
+    )
+    students = result.scalars().all()
+    for student in students:
+        await session.delete(student)
+    deleted_students = len(students)
 
     await session.commit()
     await log_event(session, "student_undo_import", user.username,
                     f"Revertida importación: {deleted_students} estudiantes eliminados, {deleted_assignments} asignaciones borradas",
-                    "student", ip_address=_ip(request), user_id=user.id)
+                    "student", ip_address=_ip(request), user_id=user.id,
+                    commit=True)
     return {"deleted_assignments": deleted_assignments, "deleted_students": deleted_students}
 
 

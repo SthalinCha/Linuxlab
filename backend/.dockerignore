@@ -1,0 +1,14 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.db
+venv
+.env
+.git
+.gitignore
+tests
+migrations
+README.md
+CHANGELOG.md
+scripts
