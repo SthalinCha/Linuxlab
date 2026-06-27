@@ -1,5 +1,6 @@
 import { useState, FormEvent } from 'react'
 import { api } from '../services/api'
+import { useAsyncAction } from '../hooks/useAsyncAction'
 import { useToast } from '../hooks/useToast'
 import { useAssignments } from '../hooks/useAssignments'
 import type { VMState } from '../types'
@@ -13,13 +14,14 @@ import AssignmentTable from '../components/AssignmentTable'
 
 export default function Assignments() {
   const { assignments, vms, students, allPeriods, currentPeriod, selectedPeriodId, loading, error, refetch: loadData, loadPeriods, handleSelectPeriod, handleActivatePeriod, page, totalPages, totalAssignments, goToPage } = useAssignments()
+  const { addToast } = useToast()
+  const action = useAsyncAction()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('todos')
 
   const [showForm, setShowForm] = useState(false)
   const [formData, setFormData] = useState({ vm_id: 0, student_id: 0 })
 
-  const { addToast } = useToast()
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [confirmRelease, setConfirmRelease] = useState<number | null>(null)
   const [confirmBulkRelease, setConfirmBulkRelease] = useState(false)
@@ -62,56 +64,51 @@ export default function Assignments() {
       addToast('error', 'Debes seleccionar un estudiante')
       return
     }
-    const controller = new AbortController()
-    try {
-      await api.assignments.create({ ...formData, period_id: activePeriodId }, { signal: controller.signal })
-      if (controller.signal.aborted) return
-      setFormData({ vm_id: 0, student_id: 0 })
-      setShowForm(false)
-      addToast('success', 'Asignación creada correctamente')
-      await loadData(activePeriodId || undefined)
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return
-      addToast('error', err instanceof Error ? err.message : 'Error al crear asignación')
-    }
+    await action.execute('create-assignment', async () => {
+      try {
+        await api.assignments.create({ ...formData, period_id: activePeriodId })
+        setFormData({ vm_id: 0, student_id: 0 })
+        setShowForm(false)
+        addToast('success', 'Asignación creada correctamente')
+        await loadData(activePeriodId || undefined)
+      } catch (err) {
+        addToast('error', err instanceof Error ? err.message : 'Error al crear asignación')
+      }
+    })
   }
 
   const handleRelease = async (id: number) => {
-    const controller = new AbortController()
-    try {
-      await api.assignments.release(id, { signal: controller.signal })
-      if (controller.signal.aborted) return
-      setConfirmRelease(null)
-      addToast('success', 'Asignación liberada')
-      await loadData(activePeriodId || undefined)
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return
-      addToast('error', err instanceof Error ? err.message : 'Error al liberar asignación')
-    }
+    await action.execute(`release-${id}`, async () => {
+      try {
+        await api.assignments.release(id)
+        setConfirmRelease(null)
+        addToast('success', 'Asignación liberada')
+        await loadData(activePeriodId || undefined)
+      } catch (err) {
+        addToast('error', err instanceof Error ? err.message : 'Error al liberar asignación')
+      }
+    })
   }
 
   const handleBulkRelease = async () => {
-    const controller = new AbortController()
-    try {
-      const result = await api.assignments.bulkRelease(Array.from(selectedIds), { signal: controller.signal })
-      if (controller.signal.aborted) return
-      setConfirmBulkRelease(false)
-      setSelectedIds(new Set())
-      addToast('success', `${result.released} asignaciones liberadas`)
-      await loadData(activePeriodId || undefined)
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return
-      addToast('error', err instanceof Error ? err.message : 'Error al liberar asignaciones')
-    }
+    await action.execute('bulk-release', async () => {
+      try {
+        const result = await api.assignments.bulkRelease(Array.from(selectedIds))
+        setConfirmBulkRelease(false)
+        setSelectedIds(new Set())
+        addToast('success', `${result.released} asignaciones liberadas`)
+        await loadData(activePeriodId || undefined)
+      } catch (err) {
+        addToast('error', err instanceof Error ? err.message : 'Error al liberar asignaciones')
+      }
+    })
   }
 
   const handleImportCsv = async (file: File) => {
     setCsvImporting(true)
     setCapacityWarning(null)
-    const controller = new AbortController()
     try {
-      const result = await api.students.importCsv(file, activePeriodId || undefined, { signal: controller.signal })
-      if (controller.signal.aborted) return
+      const result = await api.students.importCsv(file, activePeriodId || undefined)
       setImportResult(result)
       addToast('success', `${result.created} creados, ${result.assigned} asignados`)
 
@@ -121,123 +118,117 @@ export default function Assignments() {
 
       await loadData(activePeriodId || undefined)
     } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return
       addToast('error', err instanceof Error ? err.message : 'Error al importar')
     } finally {
-      if (!controller.signal.aborted) setCsvImporting(false)
+      setCsvImporting(false)
     }
   }
 
   const handleUndoImport = async () => {
-    const controller = new AbortController()
-    try {
-      const { created_ids } = importResult!
-      const result = await api.students.undoImport({
-        student_ids: created_ids,
-        period_id: activePeriodId || undefined,
-      }, { signal: controller.signal })
-      if (controller.signal.aborted) return
-      setConfirmUndoImport(false)
-      setImportResult(null)
-      addToast('success', `Importación revertida: ${result.deleted_students} estudiantes eliminados, ${result.deleted_assignments} asignaciones borradas`)
-      await loadData(activePeriodId || undefined)
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return
-      addToast('error', err instanceof Error ? err.message : 'Error al revertir importación')
-    }
+    await action.execute('undo-import', async () => {
+      try {
+        const { created_ids } = importResult!
+        const result = await api.students.undoImport({
+          student_ids: created_ids,
+          period_id: activePeriodId || undefined,
+        })
+        setConfirmUndoImport(false)
+        setImportResult(null)
+        addToast('success', `Importación revertida: ${result.deleted_students} estudiantes eliminados, ${result.deleted_assignments} asignaciones borradas`)
+        await loadData(activePeriodId || undefined)
+      } catch (err) {
+        addToast('error', err instanceof Error ? err.message : 'Error al revertir importación')
+      }
+    })
   }
 
   const handleExportCsv = async () => {
-    const controller = new AbortController()
-    try {
-      const blob = await api.assignments.export(activePeriodId, { signal: controller.signal })
-      if (controller.signal.aborted) return
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `asignaciones_${activePeriodCode.replace(/\s+/g, '_')}.csv`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-      addToast('success', 'CSV exportado correctamente')
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return
-      addToast('error', err instanceof Error ? err.message : 'Error al exportar CSV')
-    }
+    await action.execute('export-csv', async () => {
+      try {
+        const blob = await api.assignments.export(activePeriodId)
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `asignaciones_${activePeriodCode.replace(/\s+/g, '_')}.csv`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        addToast('success', 'CSV exportado correctamente')
+      } catch (err) {
+        addToast('error', err instanceof Error ? err.message : 'Error al exportar CSV')
+      }
+    })
   }
 
   const handleClosePeriod = async () => {
     if (!activePeriodId) return
-    const controller = new AbortController()
-    try {
-      const result = await api.periods.close(activePeriodId, { signal: controller.signal })
-      if (controller.signal.aborted) return
-      setConfirmClosePeriod(false)
-      addToast('success', `Período finalizado (${result.released_count} asignaciones liberadas)`)    
-      await loadData(activePeriodId || undefined)
-      await loadPeriods()
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return
-      addToast('error', err instanceof Error ? err.message : 'Error al cerrar período')
-    }
+    await action.execute('close-period', async () => {
+      try {
+        const result = await api.periods.close(activePeriodId)
+        setConfirmClosePeriod(false)
+        addToast('success', `Período finalizado (${result.released_count} asignaciones liberadas)`)
+        await loadData(activePeriodId || undefined)
+        await loadPeriods()
+      } catch (err) {
+        addToast('error', err instanceof Error ? err.message : 'Error al cerrar período')
+      }
+    })
   }
 
   const handleActivate = async () => {
     if (!activePeriodId) return
-    setConfirmActivatePeriod(false)
-    try {
-      await handleActivatePeriod(activePeriodId)
-      addToast('success', 'Período reabierto correctamente')
-      await loadData(activePeriodId)
-      await loadPeriods()
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return
-      addToast('error', err instanceof Error ? err.message : 'Error al reabrir período')
-    }
+    await action.execute('activate-period', async () => {
+      setConfirmActivatePeriod(false)
+      try {
+        await handleActivatePeriod(activePeriodId)
+        addToast('success', 'Período reabierto correctamente')
+        await loadData(activePeriodId)
+        await loadPeriods()
+      } catch (err) {
+        addToast('error', err instanceof Error ? err.message : 'Error al reabrir período')
+      }
+    })
   }
 
   const handleDeleteStudent = async (studentId: number, studentName: string) => {
     setConfirmDeleteStudent(null)
-    const controller = new AbortController()
-    try {
-      await api.students.delete(studentId, { signal: controller.signal })
-      if (controller.signal.aborted) return
-      addToast('success', `Estudiante "${studentName}" eliminado`)
-      await loadData(activePeriodId || undefined)
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return
-      addToast('error', err instanceof Error ? err.message : 'Error al eliminar estudiante')
-    }
+    await action.execute(`delete-student-${studentId}`, async () => {
+      try {
+        await api.students.delete(studentId)
+        addToast('success', `Estudiante "${studentName}" eliminado`)
+        await loadData(activePeriodId || undefined)
+      } catch (err) {
+        addToast('error', err instanceof Error ? err.message : 'Error al eliminar estudiante')
+      }
+    })
   }
 
   const handleDeleteAssignment = async (assignmentId: number) => {
     setConfirmDeleteAssignment(null)
-    const controller = new AbortController()
-    try {
-      await api.assignments.delete(assignmentId, { signal: controller.signal })
-      if (controller.signal.aborted) return
-      addToast('success', 'Asignación eliminada')
-      await loadData(activePeriodId || undefined)
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return
-      addToast('error', err instanceof Error ? err.message : 'Error al eliminar asignación')
-    }
+    await action.execute(`delete-assignment-${assignmentId}`, async () => {
+      try {
+        await api.assignments.delete(assignmentId)
+        addToast('success', 'Asignación eliminada')
+        await loadData(activePeriodId || undefined)
+      } catch (err) {
+        addToast('error', err instanceof Error ? err.message : 'Error al eliminar asignación')
+      }
+    })
   }
 
   const handleBulkDelete = async () => {
     setConfirmBulkDelete(false)
-    const controller = new AbortController()
-    try {
-      const result = await api.assignments.bulkDelete(Array.from(selectedIds), { signal: controller.signal })
-      if (controller.signal.aborted) return
-      setSelectedIds(new Set())
-      addToast('success', `${result.deleted} asignaciones eliminadas`)
-      await loadData(activePeriodId || undefined)
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return
-      addToast('error', err instanceof Error ? err.message : 'Error al eliminar asignaciones')
-    }
+    await action.execute('bulk-delete', async () => {
+      try {
+        const result = await api.assignments.bulkDelete(Array.from(selectedIds))
+        setSelectedIds(new Set())
+        addToast('success', `${result.deleted} asignaciones eliminadas`)
+        await loadData(activePeriodId || undefined)
+      } catch (err) {
+        addToast('error', err instanceof Error ? err.message : 'Error al eliminar asignaciones')
+      }
+    })
   }
 
   const toggleSelect = (id: number) => {
@@ -377,6 +368,8 @@ export default function Assignments() {
         title="¿Desvincular asignación?"
         message="La VM quedará disponible para futuras asignaciones."
         danger confirmLabel="Desvincular"
+        loading={confirmRelease !== null && action.isLoading(`release-${confirmRelease}`)}
+        loadingLabel="Desvinculando..."
         onConfirm={() => confirmRelease !== null && handleRelease(confirmRelease)}
         onCancel={() => setConfirmRelease(null)} />
 
@@ -385,6 +378,8 @@ export default function Assignments() {
         title="¿Desvincular seleccionados?"
         message={`Se liberarán ${selectedIds.size} asignaciones.`}
         danger confirmLabel="Desvincular todo"
+        loading={action.isLoading('bulk-release')}
+        loadingLabel="Desvinculando..."
         onConfirm={handleBulkRelease}
         onCancel={() => setConfirmBulkRelease(false)} />
 
@@ -393,6 +388,8 @@ export default function Assignments() {
         title="¿Eliminar asignación?"
         message="La asignación será eliminada permanentemente. Esto no se puede deshacer."
         danger confirmLabel="Eliminar"
+        loading={confirmDeleteAssignment !== null && action.isLoading(`delete-assignment-${confirmDeleteAssignment}`)}
+        loadingLabel="Eliminando..."
         onConfirm={() => confirmDeleteAssignment !== null && handleDeleteAssignment(confirmDeleteAssignment)}
         onCancel={() => setConfirmDeleteAssignment(null)} />
 
@@ -401,6 +398,8 @@ export default function Assignments() {
         title="¿Eliminar seleccionados?"
         message={`Se eliminarán permanentemente ${selectedIds.size} asignaciones. Esto no se puede deshacer.`}
         danger confirmLabel="Eliminar todo"
+        loading={action.isLoading('bulk-delete')}
+        loadingLabel="Eliminando..."
         onConfirm={handleBulkDelete}
         onCancel={() => setConfirmBulkDelete(false)} />
 
@@ -409,12 +408,16 @@ export default function Assignments() {
         title="¿Revertir importación?"
         message={`Se eliminarán ${importResult?.created_ids?.length ?? 0} estudiantes recién importados y se liberarán sus asignaciones.`}
         danger confirmLabel="Revertir"
+        loading={action.isLoading('undo-import')}
+        loadingLabel="Revertiendo..."
         onConfirm={handleUndoImport}
         onCancel={() => setConfirmUndoImport(false)} />
 
       <ClosePeriodModal
         open={confirmClosePeriod}
         periodCode={activePeriodCode}
+        loading={action.isLoading('close-period')}
+        loadingLabel="Finalizando..."
         onConfirm={handleClosePeriod}
         onCancel={() => setConfirmClosePeriod(false)} />
 
@@ -423,6 +426,8 @@ export default function Assignments() {
         title="¿Reabrir período?"
         message="El período volverá a estar activo. Las asignaciones liberadas no se restaurarán automáticamente."
         confirmLabel="Reabrir"
+        loading={action.isLoading('activate-period')}
+        loadingLabel="Reabriendo..."
         onConfirm={handleActivate}
         onCancel={() => setConfirmActivatePeriod(false)} />
 
@@ -431,6 +436,8 @@ export default function Assignments() {
         title="¿Eliminar estudiante?"
         message={`Se eliminará permanentemente a "${confirmDeleteStudent?.name}". Esto no se puede deshacer.`}
         danger confirmLabel="Eliminar"
+        loading={confirmDeleteStudent !== null && action.isLoading(`delete-student-${confirmDeleteStudent.id}`)}
+        loadingLabel="Eliminando..."
         onConfirm={() => confirmDeleteStudent && handleDeleteStudent(confirmDeleteStudent.id, confirmDeleteStudent.name)}
         onCancel={() => setConfirmDeleteStudent(null)} />
     </div>

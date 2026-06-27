@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, Fragment, useRef } from 'react'
 import { api } from '../services/api'
+import { useAsyncAction } from '../hooks/useAsyncAction'
 import { useToast } from '../hooks/useToast'
 import type { VirtualMachine, HostInfo } from '../types'
 import PortGroupCard from './PortCard'
@@ -9,6 +10,7 @@ import { StatsSkeleton, TableSkeleton } from './Skeleton'
 
 export default function PortForwardGrid() {
   const { addToast } = useToast()
+  const action = useAsyncAction()
   const [vms, setVms] = useState<VirtualMachine[]>([])
   const [hostInfo, setHostInfo] = useState<HostInfo | null>(null)
   const [loading, setLoading] = useState(true)
@@ -87,8 +89,6 @@ export default function PortForwardGrid() {
     setDeleteConfirmPort({ vmId, portIndex, service: vm.ports?.[portIndex]?.service || '?' })
   }
 
-  const deleteAbortRef = useRef<AbortController | null>(null)
-
   const confirmDeletePort = async () => {
     if (!deleteConfirmPort) return
     const { vmId, portIndex } = deleteConfirmPort
@@ -97,18 +97,15 @@ export default function PortForwardGrid() {
     setDeleteConfirmPort(null)
     if (!vm || !port) return
 
-    deleteAbortRef.current?.abort()
-    const controller = new AbortController()
-    deleteAbortRef.current = controller
-    try {
-      const updated = await api.ports.remove(vmId, portIndex, { signal: controller.signal })
-      if (controller.signal.aborted) return
-      updateVmInState(updated)
-      addToast('success', `DNAT tcp  ${hostInfo?.ip_principal || '?'}:${port.host} → ${vm.ip_address || '?'}:${port.vm} eliminado de ${vm.name}`)
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return
-      addToast('error', `Error al eliminar: ${err instanceof Error ? err.message : 'Error'}`)
-    }
+    await action.execute(`delete-port-${vmId}-${portIndex}`, async () => {
+      try {
+        const updated = await api.ports.remove(vmId, portIndex)
+        updateVmInState(updated)
+        addToast('success', `DNAT tcp  ${hostInfo?.ip_principal || '?'}:${port.host} → ${vm.ip_address || '?'}:${port.vm} eliminado de ${vm.name}`)
+      } catch (err) {
+        addToast('error', `Error al eliminar: ${err instanceof Error ? err.message : 'Error'}`)
+      }
+    })
   }
 
   const filteredVms = vms.filter(vm => {
@@ -406,6 +403,8 @@ export default function PortForwardGrid() {
         confirmLabel="Eliminar"
         cancelLabel="Cancelar"
         danger
+        loading={deleteConfirmPort !== null && action.isLoading(`delete-port-${deleteConfirmPort.vmId}-${deleteConfirmPort.portIndex}`)}
+        loadingLabel="Eliminando..."
         onConfirm={confirmDeletePort}
         onCancel={() => setDeleteConfirmPort(null)}
       />

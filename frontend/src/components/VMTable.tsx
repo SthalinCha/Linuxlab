@@ -16,6 +16,7 @@ interface Props {
   error: string | null
   isAdmin: boolean
   openMenu: number | null
+  actionLoading: Record<string, boolean>
   onToggleSelect: (id: number) => void
   onToggleSelectAll: () => void
   onAction: (id: number, action: string) => void
@@ -27,7 +28,7 @@ interface Props {
 }
 
 export default function VMTable({
-  filteredVms, selectedIds, loading, error, isAdmin, openMenu,
+  filteredVms, selectedIds, loading, error, isAdmin, openMenu, actionLoading,
   onToggleSelect, onToggleSelectAll, onAction, onDelete, onDestroy,
   onRecreate, onTerminal, onMenuOpen,
 }: Props) {
@@ -68,6 +69,7 @@ export default function VMTable({
 
   return (
     <div className="bg-white rounded-xl border border-slate-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+      <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-slate-200 bg-slate-50">
@@ -143,18 +145,21 @@ export default function VMTable({
                             icon="fa-terminal"
                             tooltip="Terminal"
                             className="text-white bg-blue-600 hover:bg-blue-700"
+                            disabled={actionLoading[`term-${vm.id}`]}
                             onClick={() => onTerminal(vm.id, vm.name)}
                           />
                           <IconButton
                             icon="fa-stop"
                             tooltip="Apagar"
                             className="text-white bg-amber-600 hover:bg-amber-700"
+                            disabled={actionLoading[`shutdown-${vm.id}`]}
                             onClick={() => onAction(vm.id, 'shutdown')}
                           />
                           <IconButton
                             icon="fa-sync-alt"
                             tooltip="Reiniciar"
                             className="text-white bg-blue-600 hover:bg-blue-700"
+                            disabled={actionLoading[`reboot-${vm.id}`]}
                             onClick={() => onAction(vm.id, 'reboot')}
                           />
                         </>
@@ -163,6 +168,7 @@ export default function VMTable({
                           icon="fa-play"
                           tooltip="Encender"
                           className="text-white bg-emerald-600 hover:bg-emerald-700"
+                          disabled={actionLoading[`start-${vm.id}`]}
                           onClick={() => onAction(vm.id, 'start')}
                         />
                       )}
@@ -170,6 +176,7 @@ export default function VMTable({
                         icon="fa-code-branch"
                         tooltip="Recrear"
                         className="text-white bg-purple-600 hover:bg-purple-700"
+                        disabled={actionLoading[`recreate-${vm.id}`]}
                         onClick={() => onRecreate(vm.id)}
                       />
                       {isRunning ? (
@@ -184,7 +191,8 @@ export default function VMTable({
                             <div ref={menuRef} className="absolute right-0 mt-1 w-44 bg-white rounded-lg shadow-lg border border-slate-200 z-10 py-1">
                               <button
                                 onClick={() => { onMenuOpen(null); onDestroy(vm.id) }}
-                                className="block w-full text-left px-4 py-2 text-xs text-red-600 hover:bg-red-50"
+                                disabled={actionLoading[`destroy-${vm.id}`]}
+                                className="block w-full text-left px-4 py-2 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
                               >
                                 <i className="fas fa-skull mr-2"></i>Forzar Apagado
                               </button>
@@ -196,6 +204,7 @@ export default function VMTable({
                           icon="fa-trash-alt"
                           tooltip="Eliminar"
                           className="text-white bg-red-600 hover:bg-red-700"
+                          disabled={actionLoading[`delete-${vm.id}`]}
                           onClick={() => onDelete(vm.id)}
                         />
                       )}
@@ -206,6 +215,7 @@ export default function VMTable({
             })}
           </tbody>
         </table>
+      </div>
     </div>
   )
 }

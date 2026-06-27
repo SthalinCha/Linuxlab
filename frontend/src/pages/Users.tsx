@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../services/api'
+import { useAsyncAction } from '../hooks/useAsyncAction'
 import { useToast } from '../hooks/useToast'
 import type { UserResponse, UserCreate, UserUpdate } from '../types'
 import ContentHeader from '../components/ContentHeader'
@@ -7,6 +8,7 @@ import { TableSkeleton } from '../components/Skeleton'
 
 export default function Users() {
   const { addToast } = useToast()
+  const action = useAsyncAction()
   const [users, setUsers] = useState<UserResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -14,7 +16,6 @@ export default function Users() {
   const [editUser, setEditUser] = useState<UserResponse | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [form, setForm] = useState({ username: '', password: '', full_name: '', email: '', role_name: 'profesor' })
-  const [saving, setSaving] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
@@ -53,63 +54,57 @@ export default function Users() {
   }
 
   const handleSave = async () => {
-    const controller = new AbortController()
-    setSaving(true)
     setError('')
-    try {
-      if (showModal === 'create') {
-        const body: UserCreate = {
-          username: form.username,
-          password: form.password,
-          full_name: form.full_name,
-          email: form.email || undefined,
-          role_name: form.role_name,
+    await action.execute('save-user', async () => {
+      try {
+        if (showModal === 'create') {
+          const body: UserCreate = {
+            username: form.username,
+            password: form.password,
+            full_name: form.full_name,
+            email: form.email || undefined,
+            role_name: form.role_name,
+          }
+          await api.users.create(body)
+          addToast('success', 'Usuario creado correctamente')
+        } else if (editUser) {
+          const body: UserUpdate = {
+            full_name: form.full_name || undefined,
+            email: form.email || undefined,
+            role_name: form.role_name,
+          }
+          await api.users.update(editUser.id, body)
+          addToast('success', 'Usuario actualizado correctamente')
         }
-        await api.users.create(body, { signal: controller.signal })
-        if (controller.signal.aborted) return
-        addToast('success', 'Usuario creado correctamente')
-      } else if (editUser) {
-        const body: UserUpdate = {
-          full_name: form.full_name || undefined,
-          email: form.email || undefined,
-          role_name: form.role_name,
-        }
-        await api.users.update(editUser.id, body, { signal: controller.signal })
-        if (controller.signal.aborted) return
-        addToast('success', 'Usuario actualizado correctamente')
+        setShowModal(null)
+        setEditUser(null)
+        abortRef.current?.abort()
+        const loadController = new AbortController()
+        abortRef.current = loadController
+        const data = await api.users.list({ signal: loadController.signal })
+        if (!loadController.signal.aborted) setUsers(data)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al guardar')
       }
-      setShowModal(null)
-      setEditUser(null)
-      abortRef.current?.abort()
-      const loadController = new AbortController()
-      abortRef.current = loadController
-      const data = await api.users.list({ signal: loadController.signal })
-      if (!loadController.signal.aborted) setUsers(data)
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return
-      setError(err instanceof Error ? err.message : 'Error al guardar')
-    } finally {
-      if (!controller.signal.aborted) setSaving(false)
-    }
+    })
   }
 
   const handleDelete = async () => {
     if (deleteId === null) return
-    const controller = new AbortController()
-    try {
-      await api.users.delete(deleteId, { signal: controller.signal })
-      if (controller.signal.aborted) return
-      addToast('success', 'Usuario eliminado correctamente')
-      setDeleteId(null)
-      abortRef.current?.abort()
-      const loadController = new AbortController()
-      abortRef.current = loadController
-      const data = await api.users.list({ signal: loadController.signal })
-      if (!loadController.signal.aborted) setUsers(data)
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return
-      setError(err instanceof Error ? err.message : 'Error al eliminar')
-    }
+    await action.execute(`delete-user-${deleteId}`, async () => {
+      try {
+        await api.users.delete(deleteId)
+        addToast('success', 'Usuario eliminado correctamente')
+        setDeleteId(null)
+        abortRef.current?.abort()
+        const loadController = new AbortController()
+        abortRef.current = loadController
+        const data = await api.users.list({ signal: loadController.signal })
+        if (!loadController.signal.aborted) setUsers(data)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al eliminar')
+      }
+    })
   }
 
   if (loading) {
@@ -245,9 +240,9 @@ export default function Users() {
                   className="px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded hover:bg-slate-50">
                   Cancelar
                 </button>
-                <button onClick={handleSave} disabled={saving}
+                <button onClick={action.isLoading('save-user') ? undefined : handleSave} disabled={action.isLoading('save-user')}
                   className="px-4 py-2 text-sm text-white bg-slate-800 rounded hover:bg-slate-700 disabled:opacity-50">
-                  {saving ? 'Guardando...' : 'Guardar'}
+                  {action.isLoading('save-user') ? <><i className="fas fa-spinner animate-spin mr-2"></i>Guardando...</> : 'Guardar'}
                 </button>
               </div>
             </div>
@@ -265,9 +260,10 @@ export default function Users() {
                 className="px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded hover:bg-slate-50">
                 Cancelar
               </button>
-              <button onClick={handleDelete}
-                className="px-4 py-2 text-sm text-white bg-red-600 rounded hover:bg-red-700">
-                Eliminar
+              <button onClick={deleteId !== null && action.isLoading(`delete-user-${deleteId}`) ? undefined : handleDelete}
+                disabled={deleteId !== null && action.isLoading(`delete-user-${deleteId}`)}
+                className="px-4 py-2 text-sm text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50">
+                {deleteId !== null && action.isLoading(`delete-user-${deleteId}`) ? <><i className="fas fa-spinner animate-spin mr-2"></i>Eliminando...</> : 'Eliminar'}
               </button>
             </div>
           </div>

@@ -16,11 +16,17 @@ interface Props {
   creatingLab: boolean
   templates: VMTemplateInfo[]
   confirmDelete: number | null
+  loadingDelete?: boolean
   confirmDestroy: number | null
+  loadingDestroy?: boolean
   confirmRecreate: number | null
+  loadingRecreate?: boolean
   confirmBulkAction: BulkAction | null
+  loadingBulkAction?: boolean
   confirmBulkDelete: boolean
+  loadingBulkDelete?: boolean
   confirmBulkRecreate: number[] | null
+  loadingBulkRecreate?: boolean
   confirmAddVm: number | null
   creatingVm: boolean
 
@@ -48,8 +54,10 @@ interface Props {
 
 export default function VMModals({
   showLabModal, labTemplate, labCount, labStart, labPrefix, creatingLab, templates,
-  confirmDelete, confirmDestroy, confirmRecreate, confirmBulkAction, confirmBulkDelete,
-  confirmBulkRecreate, confirmAddVm, creatingVm,
+  confirmDelete, loadingDelete, confirmDestroy, loadingDestroy,
+  confirmRecreate, loadingRecreate, confirmBulkAction, loadingBulkAction,
+  confirmBulkDelete, loadingBulkDelete, confirmBulkRecreate, loadingBulkRecreate,
+  confirmAddVm, creatingVm,
   onLabTemplateChange, onLabCountChange, onLabStartChange, onCloseLabModal, onCreateLab,
   onConfirmDelete, onCancelDelete, onConfirmDestroy, onCancelDestroy,
   onConfirmRecreate, onCancelRecreate, onConfirmBulkAction, onCancelBulkAction,
@@ -149,8 +157,9 @@ export default function VMModals({
         open={confirmDelete !== null}
         title="Eliminar Instancia"
         message="Esta acción destruirá los discos virtuales de la VM y no se puede deshacer."
-        confirmLabel="Sí, Eliminar"
+        confirmLabel={loadingDelete ? 'Eliminando...' : 'Sí, Eliminar'}
         danger
+        disabled={loadingDelete}
         icon="fa-trash-alt"
         iconBg="bg-red-100"
         iconColor="text-red-600"
@@ -162,8 +171,9 @@ export default function VMModals({
         open={confirmDestroy !== null}
         title="Forzar Apagado"
         message="Se forzará el apagado de la VM. Los datos en memoria no guardados se perderán."
-        confirmLabel="Sí, Forzar Apagado"
+        confirmLabel={loadingDestroy ? 'Apagando...' : 'Sí, Forzar Apagado'}
         danger
+        disabled={loadingDestroy}
         icon="fa-exclamation-triangle"
         iconBg="bg-red-100"
         iconColor="text-red-600"
@@ -175,8 +185,9 @@ export default function VMModals({
         open={confirmRecreate !== null}
         title="Recrear VM"
         message="La VM se recreará desde la plantilla. Esto no puede deshacerse."
-        confirmLabel="Recrear"
+        confirmLabel={loadingRecreate ? 'Recreando...' : 'Recrear'}
         danger
+        disabled={loadingRecreate}
         icon="fa-code-branch"
         iconBg="bg-purple-100"
         iconColor="text-purple-600"
@@ -188,8 +199,9 @@ export default function VMModals({
         open={!!confirmBulkAction}
         title={`${confirmBulkAction ? confirmBulkAction.label.charAt(0).toUpperCase() + confirmBulkAction.label.slice(1) : ''} ${confirmBulkAction?.ids.length ?? 0} VM(s)?`}
         message={`Se va a ${confirmBulkAction?.label || 'ejecutar'} en ${confirmBulkAction?.ids.length ?? 0} VM(s).`}
-        confirmLabel={confirmBulkAction?.label || 'Confirmar'}
+        confirmLabel={loadingBulkAction ? 'Procesando...' : confirmBulkAction?.label || 'Confirmar'}
         danger={confirmBulkAction?.action === 'destroy'}
+        disabled={loadingBulkAction}
         icon={confirmBulkAction?.action === 'destroy' ? 'fa-skull' : 'fa-info-circle'}
         onConfirm={onConfirmBulkAction}
         onCancel={onCancelBulkAction}
@@ -199,8 +211,9 @@ export default function VMModals({
         open={confirmBulkDelete}
         title="Eliminar Instancias"
         message="Esta acción destruirá los discos virtuales de las VM(s) seleccionadas y no se puede deshacer."
-        confirmLabel="Sí, Eliminar Todo"
+        confirmLabel={loadingBulkDelete ? 'Eliminando...' : 'Sí, Eliminar Todo'}
         danger
+        disabled={loadingBulkDelete}
         icon="fa-trash-alt"
         iconBg="bg-red-100"
         iconColor="text-red-600"
@@ -212,8 +225,9 @@ export default function VMModals({
         open={confirmBulkRecreate !== null}
         title={`Recrear ${confirmBulkRecreate?.length ?? 0} VM(s)`}
         message={`Se van a recrear ${confirmBulkRecreate?.length ?? 0} VM(s) desde su plantilla. Esto no puede deshacerse.`}
-        confirmLabel="Recrear"
+        confirmLabel={loadingBulkRecreate ? 'Recreando...' : 'Recrear'}
         danger
+        disabled={loadingBulkRecreate}
         icon="fa-code-branch"
         iconBg="bg-purple-100"
         iconColor="text-purple-600"

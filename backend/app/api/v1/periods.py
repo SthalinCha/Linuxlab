@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_session
 from app.models import Period
 from app.core.rbac import profesor_only
+from app.core.operation_lock import operation_lock
 from app.models import User
 from app.services.period_service import get_period_code, period_dates, display_name
 from app.services.assignment_service import close_period as svc_close_period
@@ -93,13 +94,19 @@ async def close_period(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(profesor_only),
 ):
-    return await svc_close_period(
-        session=session,
-        period_id=period_id,
-        ip=_ip(request),
-        username=user.username,
-        user_id=user.id,
-    )
+    lock_key = f"close-period:{period_id}"
+    if not await operation_lock.acquire(lock_key):
+        raise HTTPException(status_code=409, detail="Ya hay un cierre de período en progreso")
+    try:
+        return await svc_close_period(
+            session=session,
+            period_id=period_id,
+            ip=_ip(request),
+            username=user.username,
+            user_id=user.id,
+        )
+    finally:
+        operation_lock.release(lock_key)
 
 
 @router.put("/{period_id}/activate")
@@ -109,33 +116,39 @@ async def activate_period(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(profesor_only),
 ):
-    from app.models import Course
+    lock_key = f"activate-period:{period_id}"
+    if not await operation_lock.acquire(lock_key):
+        raise HTTPException(status_code=409, detail="Ya hay una activación de período en progreso")
+    try:
+        from app.models import Course
 
-    period = await session.get(Period, period_id)
-    if not period:
-        raise HTTPException(status_code=404, detail="Período no encontrado")
+        period = await session.get(Period, period_id)
+        if not period:
+            raise HTTPException(status_code=404, detail="Período no encontrado")
 
-    # Ownership check: si el período tiene course_id, verificar que el curso pertenezca al usuario
-    if period.course_id is not None:
-        course = await session.get(Course, period.course_id)
-        if course and course.profesor_id != user.id:
-            raise HTTPException(status_code=403, detail="No autorizado para activar este período")
+        # Ownership check
+        if period.course_id is not None:
+            course = await session.get(Course, period.course_id)
+            if course and course.profesor_id != user.id:
+                raise HTTPException(status_code=403, detail="No autorizado para activar este período")
 
-    stmt = (
-        Period.__table__.update()
-        .where(Period.is_active == True)
-        .where(Period.id != period_id)
-        .values(is_active=False)
-    )
-    await session.execute(stmt)
-    period.is_active = True
-    period.closed_at = None
-    await session.commit()
-    await session.refresh(period)
+        stmt = (
+            Period.__table__.update()
+            .where(Period.is_active == True)
+            .where(Period.id != period_id)
+            .values(is_active=False)
+        )
+        await session.execute(stmt)
+        period.is_active = True
+        period.closed_at = None
+        await session.commit()
+        await session.refresh(period)
 
-    await _log_activate(session, period, user.username, ip=_ip(request))
+        await _log_activate(session, period, user.username, ip=_ip(request))
 
-    return period
+        return period
+    finally:
+        operation_lock.release(lock_key)
 
 
 async def _log_activate(

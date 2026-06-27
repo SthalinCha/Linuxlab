@@ -22,12 +22,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const addToast = useCallback((type: ToastType, message: string) => {
     const id = ++nextId
-    setToasts(prev => [...prev, { id, type, message }])
-    if (type !== 'loading') {
-      setTimeout(() => {
-        setToasts(prev => prev.filter(t => t.id !== id))
-      }, 4000)
-    }
+    setToasts(prev => {
+      const dup = prev.find(t => t.type === type && t.message === message)
+      if (dup) return prev
+      if (type !== 'loading') {
+        setTimeout(() => {
+          setToasts(p => p.filter(t => t.id !== id))
+        }, 4000)
+      }
+      return [...prev, { id, type, message }]
+    })
     return id
   }, [])
 

@@ -16,6 +16,7 @@ from app.services.iptables_service import forward_port, unforward_port, forward_
 from app.core.config import VM_SUBNET
 from app.services.config_service import get_cached_int, get_cached_str
 from app.core.audit import log_event
+from app.core.operation_lock import operation_lock
 from app.services.vm_list_service import list_vms as list_vms_service
 from app.services.sync_vms import sync_libvirt_domains
 from app.services.vm_bulk_service import delete_vm_by_id, bulk_delete_vms, bulk_action_vms
@@ -397,21 +398,27 @@ async def clone_vm_range(
     if body.from_number < 1 or body.to_number > 254 or body.from_number > body.to_number:
         raise HTTPException(status_code=422, detail="Rango inválido (1-254, from <= to)")
 
-    tasks = [
-        _clone_vm_task(
-            num,
-            template_name=body.template_name,
-            vcpus=body.vcpus,
-            ram_mb=body.ram_mb,
-            disk_gb=body.disk_gb,
-            username=user.username,
-            ip_address=_ip_from_request(request),
-            owner_id=user.id,
-        )
-        for num in range(body.from_number, body.to_number + 1)
-    ]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    return [_r if not isinstance(_r, Exception) else {"number": None, "name": "error", "status": "error", "reason": str(_r)} for _r in results]
+    lock_key = f"clone-range:{user.id}"
+    if not await operation_lock.acquire(lock_key):
+        raise HTTPException(status_code=409, detail="Ya hay una clonación en progreso")
+    try:
+        tasks = [
+            _clone_vm_task(
+                num,
+                template_name=body.template_name,
+                vcpus=body.vcpus,
+                ram_mb=body.ram_mb,
+                disk_gb=body.disk_gb,
+                username=user.username,
+                ip_address=_ip_from_request(request),
+                owner_id=user.id,
+            )
+            for num in range(body.from_number, body.to_number + 1)
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return [_r if not isinstance(_r, Exception) else {"number": None, "name": "error", "status": "error", "reason": str(_r)} for _r in results]
+    finally:
+        operation_lock.release(lock_key)
 
 
 @router.post("/create-lab")
@@ -426,22 +433,28 @@ async def create_lab(
     if body.start_number < 1 or body.start_number > 254:
         raise HTTPException(status_code=422, detail="Número inicial inválido")
 
-    tasks = [
-        _clone_vm_task(
-            body.start_number + i,
-            template_name=body.template_name,
-            vcpus=body.vcpus,
-            ram_mb=body.ram_mb,
-            disk_gb=body.disk_gb,
-            prefix=body.prefix,
-            username=user.username,
-            ip_address=_ip_from_request(request),
-            owner_id=user.id,
-        )
-        for i in range(body.count)
-    ]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    return [_r if not isinstance(_r, Exception) else {"number": None, "name": "error", "status": "error", "reason": str(_r)} for _r in results]
+    lock_key = f"create-lab:{user.id}"
+    if not await operation_lock.acquire(lock_key):
+        raise HTTPException(status_code=409, detail="Ya hay una creación de laboratorio en progreso")
+    try:
+        tasks = [
+            _clone_vm_task(
+                body.start_number + i,
+                template_name=body.template_name,
+                vcpus=body.vcpus,
+                ram_mb=body.ram_mb,
+                disk_gb=body.disk_gb,
+                prefix=body.prefix,
+                username=user.username,
+                ip_address=_ip_from_request(request),
+                owner_id=user.id,
+            )
+            for i in range(body.count)
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return [_r if not isinstance(_r, Exception) else {"number": None, "name": "error", "status": "error", "reason": str(_r)} for _r in results]
+    finally:
+        operation_lock.release(lock_key)
 
 
 @router.post("/{vm_id}/recreate")
@@ -451,44 +464,50 @@ async def recreate_vm(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    vm = await _get_vm_or_404(session, vm_id, user)
-
-    assignment_active = await session.execute(
-        select(VMAssignment).where(
-            VMAssignment.vm_id == vm_id, VMAssignment.released_at.is_(None)
-        )
-    )
-    assignment = assignment_active.scalar_one_or_none()
-    max_recreate = get_cached_int("max_vm_recreations", 3)
-    if assignment and assignment.recreation_count >= max_recreate:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Límite de {max_recreate} recreaciones alcanzado")
-
-    _def_template = get_cached_str("default_template", "ubuntu-server-main")
-    _def_ram = get_cached_int("default_vm_ram_mb", 4096)
-    _def_vcpus = get_cached_int("default_vm_vcpus", 1)
-    r = await clone_service.recreate_vm(
-        vm.name,
-        template_name=vm.template_name or _def_template,
-        mac_address=vm.mac_address,
-        memory_mb=vm.ram_mb or _def_ram,
-        vcpus=vm.vcpus or _def_vcpus,
-    )
-    if not r["success"]:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=r["error"])
-
-    if assignment:
-        assignment.recreate(user.id, note="Recreación desde API")
-    vm.current_state = "shut off"
+    lock_key = f"recreate-vm:{vm_id}"
+    if not await operation_lock.acquire(lock_key):
+        raise HTTPException(status_code=409, detail="Ya hay una recreación de esta VM en progreso")
     try:
-        num = int(vm.name.split("-")[-1])
-        vm.ports = build_ports(num)
-    except (ValueError, IndexError):
-        pass
-    await session.commit()
-    await log_event(session, "vm_recreate", user.username, f"Recreó VM {vm.name}",
-                    "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id,
-                    commit=True)
-    return {"message": f"VM {vm.name} recreada", "recreation_count": assignment.recreation_count if assignment else 0}
+        vm = await _get_vm_or_404(session, vm_id, user)
+
+        assignment_active = await session.execute(
+            select(VMAssignment).where(
+                VMAssignment.vm_id == vm_id, VMAssignment.released_at.is_(None)
+            )
+        )
+        assignment = assignment_active.scalar_one_or_none()
+        max_recreate = get_cached_int("max_vm_recreations", 3)
+        if assignment and assignment.recreation_count >= max_recreate:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Límite de {max_recreate} recreaciones alcanzado")
+
+        _def_template = get_cached_str("default_template", "ubuntu-server-main")
+        _def_ram = get_cached_int("default_vm_ram_mb", 4096)
+        _def_vcpus = get_cached_int("default_vm_vcpus", 1)
+        r = await clone_service.recreate_vm(
+            vm.name,
+            template_name=vm.template_name or _def_template,
+            mac_address=vm.mac_address,
+            memory_mb=vm.ram_mb or _def_ram,
+            vcpus=vm.vcpus or _def_vcpus,
+        )
+        if not r["success"]:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=r["error"])
+
+        if assignment:
+            assignment.recreate(user.id, note="Recreación desde API")
+        vm.current_state = "shut off"
+        try:
+            num = int(vm.name.split("-")[-1])
+            vm.ports = build_ports(num)
+        except (ValueError, IndexError):
+            pass
+        await session.commit()
+        await log_event(session, "vm_recreate", user.username, f"Recreó VM {vm.name}",
+                        "vm", vm.id, ip_address=_ip_from_request(request), user_id=user.id,
+                        commit=True)
+        return {"message": f"VM {vm.name} recreada", "recreation_count": assignment.recreation_count if assignment else 0}
+    finally:
+        operation_lock.release(lock_key)
 
 
 @router.post("/recreate-range")
@@ -501,6 +520,9 @@ async def recreate_vm_range(
     if body.from_number < 1 or body.to_number > 254 or body.from_number > body.to_number:
         raise HTTPException(status_code=422, detail="Rango inválido (1-254, from <= to)")
 
+    lock_key = f"recreate-range:{user.id}"
+    if not await operation_lock.acquire(lock_key):
+        raise HTTPException(status_code=409, detail="Ya hay una recreación en progreso")
     names = [f"vhost-{n}" for n in range(body.from_number, body.to_number + 1)]
     result = await session.execute(
         select(VirtualMachine).where(
@@ -510,39 +532,45 @@ async def recreate_vm_range(
     )
     vm_map = {vm.name: vm for vm in result.scalars().all()}
 
-    async def _recreate_task(num: int) -> dict:
-        name = f"vhost-{num}"
-        vm = vm_map.get(name)
-        if not vm:
-            return {"number": num, "name": name, "status": "not_found"}
-        if user.role.name == "profesor" and vm.owner_id != user.id:
-            return {"number": num, "name": name, "status": "skipped", "reason": "no es tu VM"}
+    lock_key = f"recreate-range:{user.id}"
+    if not await operation_lock.acquire(lock_key):
+        raise HTTPException(status_code=409, detail="Ya hay una recreación en progreso")
+    try:
+        async def _recreate_task(num: int) -> dict:
+            name = f"vhost-{num}"
+            vm = vm_map.get(name)
+            if not vm:
+                return {"number": num, "name": name, "status": "not_found"}
+            if user.role.name == "profesor" and vm.owner_id != user.id:
+                return {"number": num, "name": name, "status": "skipped", "reason": "no es tu VM"}
 
-        async with _clone_semaphore:
-            async with async_session() as task_session:
-                _def_template = get_cached_str("default_template", "ubuntu-server-main")
-                r = await clone_service.recreate_vm(vm.name, template_name=vm.template_name or _def_template)
-                if not r["success"]:
-                    return {"number": num, "name": name, "status": "error", "reason": r["error"]}
+            async with _clone_semaphore:
+                async with async_session() as task_session:
+                    _def_template = get_cached_str("default_template", "ubuntu-server-main")
+                    r = await clone_service.recreate_vm(vm.name, template_name=vm.template_name or _def_template)
+                    if not r["success"]:
+                        return {"number": num, "name": name, "status": "error", "reason": r["error"]}
 
-                vm2 = await task_session.get(VirtualMachine, vm.id)
-                if not vm2:
-                    return {"number": num, "name": name, "status": "error", "reason": "VM no encontrada en sesión"}
-                vm2.current_state = "shut off"
-                try:
-                    vm2.ports = build_ports(num)
-                except (ValueError, IndexError):
-                    pass
-                await task_session.commit()
-                await log_event(task_session, "vm_recreate", user.username,
-                                f"Recreó {vm2.name} (rango)",
-                                "vm", vm2.id, ip_address=_ip_from_request(request), user_id=user.id,
-                                commit=True)
-                return {"number": num, "name": name, "status": "recreated"}
+                    vm2 = await task_session.get(VirtualMachine, vm.id)
+                    if not vm2:
+                        return {"number": num, "name": name, "status": "error", "reason": "VM no encontrada en sesión"}
+                    vm2.current_state = "shut off"
+                    try:
+                        vm2.ports = build_ports(num)
+                    except (ValueError, IndexError):
+                        pass
+                    await task_session.commit()
+                    await log_event(task_session, "vm_recreate", user.username,
+                                    f"Recreó {vm2.name} (rango)",
+                                    "vm", vm2.id, ip_address=_ip_from_request(request), user_id=user.id,
+                                    commit=True)
+                    return {"number": num, "name": name, "status": "recreated"}
 
-    tasks = [_recreate_task(n) for n in range(body.from_number, body.to_number + 1)]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    return [_r if not isinstance(_r, Exception) else {"number": None, "name": "error", "status": "error", "reason": str(_r)} for _r in results]
+        tasks = [_recreate_task(n) for n in range(body.from_number, body.to_number + 1)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return [_r if not isinstance(_r, Exception) else {"number": None, "name": "error", "status": "error", "reason": str(_r)} for _r in results]
+    finally:
+        operation_lock.release(lock_key)
 
 
 @router.delete("/{vm_id}")
@@ -552,10 +580,16 @@ async def delete_vm(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    vm = await _get_vm_or_404(session, vm_id, user)
-    result = await delete_vm_by_id(session, vm_id, vm_manager, clone_service,
-                                   user.username, _ip_from_request(request), user_id=user.id)
-    return result
+    lock_key = f"delete-vm:{vm_id}"
+    if not await operation_lock.acquire(lock_key):
+        raise HTTPException(status_code=409, detail="Ya hay una eliminación de esta VM en progreso")
+    try:
+        vm = await _get_vm_or_404(session, vm_id, user)
+        result = await delete_vm_by_id(session, vm_id, vm_manager, clone_service,
+                                       user.username, _ip_from_request(request), user_id=user.id)
+        return result
+    finally:
+        operation_lock.release(lock_key)
 
 
 @router.post("/bulk-delete")
@@ -567,17 +601,23 @@ async def bulk_delete(
 ):
     if not body.ids:
         raise HTTPException(status_code=422, detail="Lista de IDs vacía")
-    ids = body.ids
-    if user.role.name == "profesor":
-        result = await session.execute(
-            select(VirtualMachine.id).where(
-                VirtualMachine.id.in_(body.ids),
-                VirtualMachine.owner_id == user.id,
+    lock_key = f"bulk-delete-vm:{user.id}"
+    if not await operation_lock.acquire(lock_key):
+        raise HTTPException(status_code=409, detail="Ya hay una eliminación masiva en progreso")
+    try:
+        ids = body.ids
+        if user.role.name == "profesor":
+            result = await session.execute(
+                select(VirtualMachine.id).where(
+                    VirtualMachine.id.in_(body.ids),
+                    VirtualMachine.owner_id == user.id,
+                )
             )
-        )
-        ids = [r[0] for r in result.all()]
-    return await bulk_delete_vms(session, ids, vm_manager, clone_service,
-                                 user.username, _ip_from_request(request), user_id=user.id)
+            ids = [r[0] for r in result.all()]
+        return await bulk_delete_vms(session, ids, vm_manager, clone_service,
+                                     user.username, _ip_from_request(request), user_id=user.id)
+    finally:
+        operation_lock.release(lock_key)
 
 
 @router.post("/bulk-action")
@@ -592,17 +632,23 @@ async def bulk_action(
     action_map = {"start", "shutdown", "reboot", "destroy"}
     if body.action not in action_map:
         raise HTTPException(status_code=422, detail=f"Acción '{body.action}' no válida")
-    ids = body.ids
-    if user.role.name == "profesor":
-        result = await session.execute(
-            select(VirtualMachine.id).where(
-                VirtualMachine.id.in_(body.ids),
-                VirtualMachine.owner_id == user.id,
+    lock_key = f"bulk-action:{user.id}:{body.action}"
+    if not await operation_lock.acquire(lock_key):
+        raise HTTPException(status_code=409, detail="Ya hay una acción masiva en progreso")
+    try:
+        ids = body.ids
+        if user.role.name == "profesor":
+            result = await session.execute(
+                select(VirtualMachine.id).where(
+                    VirtualMachine.id.in_(body.ids),
+                    VirtualMachine.owner_id == user.id,
+                )
             )
-        )
-        ids = [r[0] for r in result.all()]
-    return await bulk_action_vms(session, ids, body.action, vm_manager,
-                                 user.username, _ip_from_request(request), user_id=user.id)
+            ids = [r[0] for r in result.all()]
+        return await bulk_action_vms(session, ids, body.action, vm_manager,
+                                     user.username, _ip_from_request(request), user_id=user.id)
+    finally:
+        operation_lock.release(lock_key)
 
 
 @router.post("/{vm_id}/ports", response_model=VirtualMachineResponse)

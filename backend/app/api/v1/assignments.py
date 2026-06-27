@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_session
 from app.models import VMAssignment, Period, VirtualMachine
 from app.core.rbac import profesor_only
+from app.core.operation_lock import operation_lock
 from app.core.dates import utc_iso
 from app.models import User
 from app.services.assignment_service import (
@@ -314,36 +315,42 @@ async def bulk_delete(
     if not body.ids:
         raise HTTPException(status_code=422, detail="Lista de IDs vacía")
 
-    from app.core.audit import log_event
+    lock_key = f"bulk-delete-assignment:{user.id}"
+    if not await operation_lock.acquire(lock_key):
+        raise HTTPException(status_code=409, detail="Ya hay una eliminación masiva en progreso")
+    try:
+        from app.core.audit import log_event
 
-    result = await session.execute(
-        select(VMAssignment).where(VMAssignment.id.in_(body.ids))
-    )
-    assignments = result.scalars().all()
-
-    vm_ids = [a.vm_id for a in assignments if a.vm_id is not None]
-    own_vm_ids: set[int] = set(vm_ids)
-    if vm_ids and user.role.name == "profesor":
-        vm_result = await session.execute(
-            select(VirtualMachine.id).where(
-                VirtualMachine.id.in_(vm_ids),
-                VirtualMachine.owner_id == user.id,
-            )
+        result = await session.execute(
+            select(VMAssignment).where(VMAssignment.id.in_(body.ids))
         )
-        own_vm_ids = {row[0] for row in vm_result.all()}
+        assignments = result.scalars().all()
 
-    deleted = 0
-    for assignment in assignments:
-        if user.role.name == "profesor":
-            if not assignment.vm_id:
-                continue
-            if assignment.vm_id not in own_vm_ids:
-                continue
-        await session.delete(assignment)
-        deleted += 1
-        await log_event(session, "assignment_delete", user.username,
-                        f"Eliminó asignación #{assignment.id} (masivo)",
-                        "assignment", assignment.id, ip_address=_ip(request), user_id=user.id)
+        vm_ids = [a.vm_id for a in assignments if a.vm_id is not None]
+        own_vm_ids: set[int] = set(vm_ids)
+        if vm_ids and user.role.name == "profesor":
+            vm_result = await session.execute(
+                select(VirtualMachine.id).where(
+                    VirtualMachine.id.in_(vm_ids),
+                    VirtualMachine.owner_id == user.id,
+                )
+            )
+            own_vm_ids = {row[0] for row in vm_result.all()}
 
-    await session.commit()
-    return {"deleted": deleted}
+        deleted = 0
+        for assignment in assignments:
+            if user.role.name == "profesor":
+                if not assignment.vm_id:
+                    continue
+                if assignment.vm_id not in own_vm_ids:
+                    continue
+            await session.delete(assignment)
+            deleted += 1
+            await log_event(session, "assignment_delete", user.username,
+                            f"Eliminó asignación #{assignment.id} (masivo)",
+                            "assignment", assignment.id, ip_address=_ip(request), user_id=user.id)
+
+        await session.commit()
+        return {"deleted": deleted}
+    finally:
+        operation_lock.release(lock_key)

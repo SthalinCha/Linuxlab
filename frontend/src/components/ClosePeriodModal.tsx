@@ -5,9 +5,11 @@ interface Props {
   periodCode: string
   onConfirm: () => void
   onCancel: () => void
+  loading?: boolean
+  loadingLabel?: string
 }
 
-export default function ClosePeriodModal({ open, periodCode, onConfirm, onCancel }: Props) {
+export default function ClosePeriodModal({ open, periodCode, onConfirm, onCancel, loading, loadingLabel }: Props) {
   const titleId = 'close-period-modal-title'
   const descId = 'close-period-modal-desc'
   const confirmRef = useRef<HTMLButtonElement>(null)
@@ -54,9 +56,9 @@ export default function ClosePeriodModal({ open, periodCode, onConfirm, onCancel
             className="px-4 py-2 text-sm text-slate-600 bg-slate-100 rounded hover:bg-slate-200">
             Cancelar
           </button>
-          <button ref={confirmRef} onClick={onConfirm}
-            className="px-4 py-2 text-sm text-white bg-red-600 rounded hover:bg-red-700">
-            Finalizar Período
+          <button ref={confirmRef} onClick={loading ? undefined : onConfirm} disabled={loading}
+            className="px-4 py-2 text-sm text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">
+            {loading ? <><i className="fas fa-spinner animate-spin mr-2"></i>{loadingLabel || 'Finalizando...'}</> : 'Finalizar Período'}
           </button>
         </div>
       </div>
