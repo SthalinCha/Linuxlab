@@ -44,10 +44,10 @@ function parseMethod(options?: RequestInit): string {
 
 export async function cachedRequest<T>(
   path: string,
+  fetcher: (path: string, options?: RequestInit, signal?: AbortSignal) => Promise<T>,
   options?: RequestInit,
   signal?: AbortSignal,
   ttl?: number,
-  fetcher: (path: string, options?: RequestInit, signal?: AbortSignal) => Promise<T>,
 ): Promise<T> {
   const method = parseMethod(options)
   const isMutation = method !== 'GET'

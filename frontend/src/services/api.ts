@@ -88,7 +88,7 @@ async function request<T>(
     return result
   }
 
-  return cachedRequest<T>(path, options, signal, ttl, fetchWithAuth)
+  return cachedRequest<T>(path, fetchWithAuth, options, signal, ttl)
 }
 
 type SignalOption = { signal?: AbortSignal }
