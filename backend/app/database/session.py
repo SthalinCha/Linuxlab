@@ -15,7 +15,7 @@ else:
         pool_size=_pool_size,
         max_overflow=_max_overflow,
         pool_timeout=_pool_timeout,
-        pool_pre_ping=True,
+        # pool_pre_ping omitted — aiomysql's ping() lacks 'reconnect' argument
         pool_recycle=300,
     )
 
