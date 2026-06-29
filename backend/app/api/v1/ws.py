@@ -117,7 +117,7 @@ async def terminal_ws(websocket: WebSocket, vm_id: int):
                     data = await process.stdout.read(4096)
                     if not data:
                         break
-                    await websocket.send_bytes(data)
+                    await websocket.send_text(data.decode("utf-8", errors="replace"))
             except Exception:
                 pass
 
