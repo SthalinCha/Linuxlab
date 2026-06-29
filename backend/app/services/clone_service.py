@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import subprocess
 import xml.etree.ElementTree as ET
 from app.core.libvirt.connection import get_connection, HAVE_LIBVIRT
 from app.services.config_service import get_cached_str, get_cached_int
@@ -9,8 +8,6 @@ from app.services.libvirt_pool import ensure_pool, ensure_template_volume, PoolE
 from app.services.libvirt_network import ensure_dhcp_host, remove_dhcp_host, NetworkError
 
 logger = logging.getLogger(__name__)
-
-guestfish_semaphore = asyncio.Semaphore(3)
 
 POOL_NAME = os.getenv("LIBVIRT_POOL", "images")
 BRIDGE = os.getenv("VM_BRIDGE", "virbr0")
@@ -66,122 +63,6 @@ def _domain_xml(name: str, vol_path: str, mac: str, memory_mb: int = 4096, vcpus
     <memballoon model='virtio'/>
   </devices>
 </domain>"""
-
-
-async def _detect_distro(vol_path: str, default: str = "ubuntu") -> str:
-    """Detecta la distribución Linux en una imagen qcow2 usando guestfish."""
-    def _check() -> str:
-        try:
-            r = subprocess.run(
-                ["guestfish", "-a", vol_path, "-i", "cat", "/etc/os-release"],
-                capture_output=True, text=True, timeout=10,
-            )
-            if r.returncode == 0:
-                content = r.stdout.lower()
-                if "alpine" in content:
-                    return "alpine"
-                if any(x in content for x in ["rhel", "rocky", "fedora", "almalinux", "centos"]):
-                    return "rhel"
-                if "ubuntu" in content:
-                    return "ubuntu"
-                if "debian" in content:
-                    return "debian"
-        except Exception:
-            pass
-        return default
-
-    return await asyncio.to_thread(_check)
-
-
-async def _customize_guest(vol_path: str, hostname: str, initramfs: bool = False, template: str | None = None) -> None:
-    """Customiza el guest OS dentro de una imagen qcow2: hostname, red DHCP e initramfs."""
-    async with guestfish_semaphore:
-        distro = await _detect_distro(vol_path)
-
-        def _run() -> subprocess.CompletedProcess:
-            vm_num = hostname.split("-")[-1] if "-" in hostname else "0"
-            cockpit_conf = f"""[WebService]
-UrlRoot = /mv{vm_num}
-ForwardedHeader = X-Forwarded-For
-AllowUnencrypted = true
-"""
-
-            if distro == "alpine":
-                cmds = f"""
-                  write /etc/hostname "{hostname}"
-                  write /etc/hosts "127.0.0.1 localhost {hostname}
-                ::1     localhost ip6-localhost ip6-loopback"
-                  rm-f /etc/machine-id
-                  write /etc/conf.d/hostname "hostname=\\"{hostname}\\""
-                  mkdir-p /etc/cockpit
-                  write /etc/cockpit/cockpit.conf "{cockpit_conf}"
-                  command "hostname {hostname} 2>/dev/null || true"
-                  command "ssh-keygen -A 2>/dev/null || true"
-                  command "rc-service cockpit restart 2>/dev/null || true"
-                  {('command "update-initramfs -u -k all 2>/dev/null || update-initramfs -u 2>/dev/null || true"' if initramfs else '# initramfs skipped')}
-                """
-            elif distro == "rhel":
-                cmds = f"""
-                  write /etc/hostname "{hostname}"
-                  write /etc/hosts "127.0.0.1 localhost {hostname}
-                ::1     localhost ip6-localhost ip6-loopback"
-                  rm-f /etc/machine-id
-                  rm-f /var/lib/systemd/random-seed
-                  mkdir-p /etc/cockpit
-                  write /etc/cockpit/cockpit.conf "{cockpit_conf}"
-                  command "hostnamectl set-hostname {hostname} || true"
-                  command "ssh-keygen -A 2>/dev/null || true"
-                  command "systemctl enable cockpit.socket 2>/dev/null || true"
-                  {('command "update-initramfs -u -k all 2>/dev/null || update-initramfs -u 2>/dev/null || true"' if initramfs else '# initramfs skipped')}
-                """
-            else:
-                cmds = f"""
-                  write /etc/hostname "{hostname}"
-                  write /etc/hosts "127.0.0.1 localhost {hostname}
-                ::1     localhost ip6-localhost ip6-loopback"
-                  rm-f /etc/machine-id
-                  rm-f /var/lib/systemd/random-seed
-                  rm-rf /etc/netplan
-                  mkdir-p /etc/netplan
-                  write /etc/netplan/01-dhcp.yaml "network:
-                  version: 2
-                  renderer: networkd
-                  ethernets:
-                    id0:
-                      match:
-                        name: en*
-                      dhcp4: true
-                      dhcp6: false"
-                  rm-f /etc/network/interfaces
-                  rm-f /etc/network/interfaces.d/*
-                  mkdir-p /etc/cockpit
-                  write /etc/cockpit/cockpit.conf "{cockpit_conf}"
-                  command "hostnamectl set-hostname {hostname} || true"
-                  command "ssh-keygen -A 2>/dev/null || true"
-                  command "systemctl enable cockpit.socket 2>/dev/null || true"
-                  {('command "update-initramfs -u -k all 2>/dev/null || update-initramfs -u 2>/dev/null || true"' if initramfs else '# initramfs skipped')}
-                """
-
-            return subprocess.run(
-                ["guestfish", "-a", vol_path, "-i"],
-                input=cmds,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-
-        try:
-            result = await asyncio.to_thread(_run)
-            if result.returncode == 0:
-                logger.info("Guest OS customizado (%s): %s", distro, hostname)
-            else:
-                logger.warning("guestfish stderr para %s (%s): %s", hostname, distro, result.stderr[:500])
-        except FileNotFoundError:
-            logger.warning("guestfish no instalado, saltando customización de %s", hostname)
-        except subprocess.TimeoutExpired:
-            logger.warning("guestfish timeout para %s", hostname)
-        except Exception as e:
-            logger.warning("Error customizando guest %s: %s", hostname, e)
 
 
 class CloneService:
@@ -268,9 +149,6 @@ class CloneService:
             }
 
         r = await asyncio.to_thread(_libvirt_clone)
-        if r["success"]:
-            await _customize_guest(r["vol_path"], new_name, initramfs=True)
-            del r["vol_path"]
         return r
 
     async def recreate_vm(self, vm_name: str, template_name: str = "",
@@ -406,9 +284,6 @@ class CloneService:
             return {"success": True, "name": vm_name, "path": new_path, "vol_path": new_path}
 
         r = await asyncio.to_thread(_libvirt_recreate)
-        if r["success"]:
-            await _customize_guest(r["vol_path"], vm_name, initramfs=True)
-            del r["vol_path"]
         return r
 
     async def delete_vm_storage(self, vm_name: str) -> bool:

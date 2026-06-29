@@ -7,10 +7,10 @@ import ChangePasswordModal from './ChangePasswordModal'
 const ADMIN_NAV = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/vms', label: 'Instancias' },
-  { to: '/network', label: 'Accesos' },
-  { to: '/audit', label: 'Auditoría' },
   { to: '/host', label: 'Host' },
+  { to: '/network', label: 'Accesos' },
   { to: '/users', label: 'Usuarios' },
+  { to: '/audit', label: 'Auditoría' },
 ]
 
 const PROFESOR_NAV = [

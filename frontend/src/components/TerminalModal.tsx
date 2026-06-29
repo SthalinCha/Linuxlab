@@ -35,7 +35,7 @@ export default function TerminalModal({ open, vmId, vmName, onClose, wsUrl }: Pr
     const token = localStorage.getItem('access_token')
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
-    const url = wsUrl || `${protocol}//${host}/ws/terminal/${vmId}?token=${token}`
+    const url = wsUrl || `${protocol}//${host}/ws/console/${vmId}?token=${token}`
     const ws = new WebSocket(url)
     wsRef.current = ws
 

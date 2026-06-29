@@ -10,7 +10,7 @@ from app.models import VirtualMachine, VMAssignment, VMTemplate
 from app.core.security import get_current_user
 from app.models import User
 from app.core.libvirt.vm_manager import get_manager as get_vm_manager
-from app.services.clone_service import CloneService, mac_from_num, _customize_guest
+from app.services.clone_service import CloneService, mac_from_num
 from app.services.vm_service import build_ports
 from app.services.iptables_service import forward_port, unforward_port, forward_range, unforward_range
 from app.core.config import VM_SUBNET
@@ -720,8 +720,6 @@ async def repair_vms(
     async def _repair_one(vm: VirtualMachine) -> dict:
         if vm.current_state != "shut off":
             return {"name": vm.name, "status": "skipped"}
-        vol_path = f"/var/lib/libvirt/images/{vm.name}.qcow2"
-        await _customize_guest(vol_path, vm.name, initramfs=True)
         if vm.mac_address and vm.ip_address:
             if not dhcp_host_exists(vm.mac_address):
                 try:
