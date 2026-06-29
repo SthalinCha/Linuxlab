@@ -55,7 +55,6 @@ server {
         sub_filter_once off;
         sub_filter_types *;
         sub_filter '/mv' '/vhost';
-        sub_filter '/cockpit/' '/vhost$1/cockpit/';
         sub_filter "ws://$vm_ip:9090" "wss://$host";
         proxy_connect_timeout 60s;
         proxy_send_timeout 60s;
