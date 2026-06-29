@@ -1,5 +1,7 @@
 import asyncio
 import json
+import os
+import pty
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from app.database.session import async_session
@@ -96,8 +98,10 @@ async def terminal_ws(websocket: WebSocket, vm_id: int):
 
     await websocket.accept()
 
+    master_fd = slave_fd = None
     process = None
     try:
+        master_fd, slave_fd = pty.openpty()
         process = await asyncio.create_subprocess_exec(
             "ssh", "-tt",
             "-o", "StrictHostKeyChecking=no",
@@ -106,36 +110,49 @@ async def terminal_ws(websocket: WebSocket, vm_id: int):
             "-o", "LogLevel=ERROR",
             "-p", str(ssh_target[1]),
             f"{ssh_user}@{ssh_target[0]}",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
         )
+        os.close(slave_fd)
+        slave_fd = None
 
-        async def read_stdout():
+        loop = asyncio.get_event_loop()
+
+        async def read_pty():
             try:
                 while True:
-                    data = await process.stdout.read(4096)
+                    data = await loop.run_in_executor(None, os.read, master_fd, 4096)
                     if not data:
                         break
                     await websocket.send_text(data.decode("utf-8", errors="replace"))
             except Exception:
                 pass
 
-        async def read_ws():
+        async def write_pty():
             try:
                 while True:
                     data = await websocket.receive_text()
-                    process.stdin.write(data.encode())
-                    await process.stdin.drain()
+                    os.write(master_fd, data.encode())
             except WebSocketDisconnect:
                 pass
             except Exception:
                 pass
 
-        await asyncio.gather(read_stdout(), read_ws())
+        await asyncio.gather(read_pty(), write_pty())
     except Exception:
         pass
     finally:
+        if master_fd is not None:
+            try:
+                os.close(master_fd)
+            except Exception:
+                pass
+        if slave_fd is not None:
+            try:
+                os.close(slave_fd)
+            except Exception:
+                pass
         if process:
             try:
                 process.terminate()
