@@ -84,6 +84,15 @@ async def create_student(
         course_id=body.course_id,
     )
     session.add(student)
+    await session.flush()
+    if body.period_id:
+        session.add(VMAssignment(
+            vm_id=None,
+            student_id=student.id,
+            period_id=body.period_id,
+            vm_name_snapshot="",
+            assigned_by=user.id,
+        ))
     await session.commit()
     await log_event(session, "student_create", user.username,
                     f"Creó estudiante {student.full_name}",

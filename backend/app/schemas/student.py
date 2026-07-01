@@ -6,6 +6,7 @@ class StudentCreate(BaseModel):
     full_name: str
     email: str
     course_id: int | None = None
+    period_id: int | None = None
 
 
 class StudentUpdate(BaseModel):

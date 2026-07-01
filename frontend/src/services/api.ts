@@ -186,7 +186,7 @@ export const api = {
     },
     get: (id: number, opts?: SignalOption) =>
       request<Student>(`/students/${id}`, undefined, opts?.signal),
-    create: (data: { full_name: string; email: string }, opts?: SignalOption) =>
+    create: (data: { full_name: string; email: string; period_id?: number }, opts?: SignalOption) =>
       request<Student>('/students', { method: 'POST', body: JSON.stringify(data) }, opts?.signal),
     update: (id: number, data: { full_name?: string; email?: string }, opts?: SignalOption) =>
       request<Student>(`/students/${id}`, { method: 'PUT', body: JSON.stringify(data) }, opts?.signal),

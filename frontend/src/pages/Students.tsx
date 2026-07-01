@@ -45,7 +45,7 @@ export default function Students() {
   const handleCreateStudent = async (data: { full_name: string; email: string }) => {
     await action.execute('create-student', async () => {
       try {
-        await api.students.create(data)
+        await api.students.create({ ...data, period_id: selectedPeriodId || undefined })
         setShowCreateModal(false)
         addToast('success', `Estudiante "${data.full_name}" creado correctamente`)
         await loadData(selectedPeriodId || undefined)
