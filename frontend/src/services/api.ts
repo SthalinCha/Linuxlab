@@ -206,6 +206,12 @@ export const api = {
         body: formData,
       }, opts?.signal)
     },
+    exportCsv: async (periodId?: number, opts?: SignalOption) => {
+      const params = periodId ? `?period_id=${periodId}` : ''
+      const res = await fetch(`/api/students/export${params}`, { signal: opts?.signal })
+      if (!res.ok) throw new Error('Error al exportar CSV')
+      return res.blob()
+    },
   },
   assignments: {
     list: async (activeOnly = true, periodId?: number, opts?: SignalOption & { limit?: number; offset?: number }) => {

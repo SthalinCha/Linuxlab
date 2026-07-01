@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from io import StringIO
 from typing import Optional
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request, status, Body
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, or_, func
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -333,6 +334,41 @@ async def undo_import(
         return {"deleted_assignments": deleted_assignments, "deleted_students": deleted_students}
     finally:
         operation_lock.release(lock_key)
+
+
+@router.get("/export")
+async def export_students(
+    period_id: Optional[int] = None,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(profesor_only),
+):
+    query = select(Student).where(
+        Student.deleted_at.is_(None),
+    )
+    if period_id:
+        query = query.where(
+            Student.id.in_(
+                select(VMAssignment.student_id).where(
+                    VMAssignment.period_id == period_id,
+                )
+            )
+        )
+    query = query.order_by(Student.full_name)
+    result = await session.execute(query)
+    students = result.scalars().all()
+
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Nombre Completo", "Correo Electrónico"])
+    for s in students:
+        writer.writerow([s.full_name, s.email])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=estudiantes.csv"},
+    )
 
 
 @router.get("/{student_id}/history")

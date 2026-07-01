@@ -144,7 +144,7 @@ export default function Students() {
   const handleExportCsv = async () => {
     await action.execute('export-csv', async () => {
       try {
-        const blob = await api.assignments.export(selectedPeriodId)
+        const blob = await api.students.exportCsv(selectedPeriodId)
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
