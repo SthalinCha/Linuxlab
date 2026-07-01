@@ -47,7 +47,7 @@ export function useAssignments() {
         setTotalAssignments(0)
       }
       if (Array.isArray(v)) setVms(v); else console.warn('useAssignments: vms no es un array', v)
-      if (Array.isArray(s)) setStudents(s); else console.warn('useAssignments: students no es un array', s)
+      if (s && Array.isArray(s.items)) setStudents(s.items); else console.warn('useAssignments: students no es un array', s)
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Error al cargar datos')

@@ -184,16 +184,36 @@ async def import_csv(
                 rows.append({"full_name": r[0].strip(), "email": r[1].strip()})
 
         created = 0
-        assigned = 0
-        unassigned = 0
+        skipped = 0
 
         csv_student_ids: set[int] = set()
         new_ids: list[int] = []
+
+        seen_in_csv: set[str] = set()
+
+        # Pre-check: find existing emails & their IDs in DB
+        csv_emails = [r.get("email", "").strip() for r in rows if r.get("email", "").strip()]
+        existing_emails: set[str] = set()
+        existing_student_ids: dict[str, int] = {}
+        if csv_emails:
+            result = await session.execute(
+                select(Student.email, Student.id).where(Student.email.in_(csv_emails))
+            )
+            for email, sid in result:
+                existing_emails.add(email)
+                existing_student_ids[email] = sid
 
         for row in rows:
             email = (row.get("email") or "").strip()
             if not email:
                 errors.append("Fila sin email")
+                continue
+            if email in seen_in_csv:
+                errors.append(f"Email duplicado en el CSV: {email}")
+                continue
+            seen_in_csv.add(email)
+            if email in existing_emails:
+                skipped += 1
                 continue
             try:
                 student_code = row.get("student_code") or email.split("@")[0]
@@ -217,71 +237,43 @@ async def import_csv(
             errors.clear()
             errors.append("No se puede subir este CSV. El formato debe ser: nombre completo, correo")
 
-        # Phase 2: auto-assign imported students if period_id provided
-        if period_id and csv_student_ids:
-            period = await session.get(Period, period_id)
-            if not period:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Período no encontrado",
-                )
-
-            already_assigned = set()
-            result = await session.execute(
-                select(VMAssignment.student_id).where(
-                    VMAssignment.student_id.in_(csv_student_ids),
-                    VMAssignment.period_id == period_id,
-                    VMAssignment.released_at.is_(None),
-                )
-            )
-            already_assigned = {r[0] for r in result}
-            to_assign_ids = csv_student_ids - already_assigned
-
-            if to_assign_ids:
-                students_to_assign = await _find_unassigned_students(
-                    session, period_id, student_ids=to_assign_ids,
-                    created_by=user.id,
-                )
-                available_vms = await _find_available_vms(
-                    session, period_id,
-                    owner_id=user.id,
-                )
-
-                pairs = list(zip(students_to_assign, available_vms))
-                assignment_objs = []
-                for student, vm in pairs:
-                    a = VMAssignment(
-                        vm_id=vm.id,
-                        student_id=student.id,
-                        period_id=period.id,
-                        vm_name_snapshot=vm.name,
-                        assigned_by=user.id,
+        # Link students to the period (without assigning a VM)
+        if period_id:
+            all_student_ids = set(new_ids)
+            # Also link existing students that don't yet have a period-linking record
+            if existing_student_ids:
+                existing_sids = list(existing_student_ids.values())
+                existing_result = await session.execute(
+                    select(VMAssignment.student_id).where(
+                        VMAssignment.period_id == period_id,
+                        VMAssignment.student_id.in_(existing_sids),
+                        VMAssignment.vm_id.is_(None),
                     )
-                    session.add(a)
-                    assignment_objs.append((a, student, vm))
+                )
+                already_linked = {r[0] for r in existing_result}
+                for sid in existing_sids:
+                    if sid not in already_linked:
+                        all_student_ids.add(sid)
 
-                await session.flush()
-
-                for a, student, vm in assignment_objs:
-                    await log_event(
-                        session, "assignment_create", user.username,
-                        f"Asignación automática (CSV): {vm.name} → {student.full_name}",
-                        "assignment", a.id, ip_address=_ip(request), user_id=user.id,
-                    )
-
-                assigned = len(pairs)
-                unassigned = max(0, len(students_to_assign) - assigned)
+            for sid in all_student_ids:
+                session.add(VMAssignment(
+                    vm_id=None,
+                    student_id=sid,
+                    period_id=period_id,
+                    vm_name_snapshot="",
+                    assigned_by=user.id,
+                ))
+            await session.flush()
 
         await session.commit()
         await log_event(session, "student_import", user.username,
-                        f"Importó {created} estudiantes desde CSV ({assigned} asignados, "
-                        f"{unassigned} sin VM, errores: {len(errors)})",
+                        f"Importó {created} estudiantes desde CSV (errores: {len(errors)})",
                         "student", ip_address=_ip(request), user_id=user.id,
                         commit=True)
         return {
             "created": created,
-            "assigned": assigned,
-            "unassigned": unassigned,
+            "assigned": 0,
+            "unassigned": 0,
             "errors": errors,
             "created_ids": new_ids,
         }

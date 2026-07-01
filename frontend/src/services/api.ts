@@ -7,6 +7,7 @@ import type {
   BulkPortsRequest,
   UserResponse, UserCreate, UserUpdate,
   VMTemplateInfo,
+  AutoAssignPreview, AutoAssignResult,
 } from '../types'
 import { cachedRequest, invalidateCache } from './apiCache'
 
@@ -179,9 +180,16 @@ export const api = {
   },
   students: {
     list: async (search?: string, opts?: SignalOption) => {
-      const res = await request<{ items: Student[] }>(`/students${search ? `?search=${search}` : ''}`, undefined, opts?.signal)
-      return res.items
+      const params = search ? `?search=${encodeURIComponent(search)}` : ''
+      const res = await request<{ items: Student[]; total: number }>(`/students${params}`, undefined, opts?.signal)
+      return res
     },
+    get: (id: number, opts?: SignalOption) =>
+      request<Student>(`/students/${id}`, undefined, opts?.signal),
+    create: (data: { full_name: string; email: string }, opts?: SignalOption) =>
+      request<Student>('/students', { method: 'POST', body: JSON.stringify(data) }, opts?.signal),
+    update: (id: number, data: { full_name?: string; email?: string }, opts?: SignalOption) =>
+      request<Student>(`/students/${id}`, { method: 'PUT', body: JSON.stringify(data) }, opts?.signal),
     delete: (id: number, opts?: SignalOption) =>
       request<{ message: string }>(`/students/${id}`, { method: 'DELETE' }, opts?.signal),
     undoImport: (data: { student_ids: number[]; period_id?: number }, opts?: SignalOption) =>
@@ -251,6 +259,11 @@ export const api = {
       }
       return res.blob()
     },
+    autoAssign: (data: { period_id: number; preview?: boolean }, opts?: SignalOption) =>
+      request<AutoAssignPreview | AutoAssignResult>('/assignments/auto-assign', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }, opts?.signal),
   },
   periods: {
     current: (opts?: SignalOption) =>

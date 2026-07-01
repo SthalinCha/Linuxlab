@@ -257,4 +257,25 @@ export interface VMTemplateInfo {
   disk_gb: number
 }
 
+export interface AutoAssignPreviewItem {
+  student: string
+  vm: string
+  student_id: number
+  vm_id: number
+}
+
+export interface AutoAssignPreview {
+  preview: true
+  assignments: AutoAssignPreviewItem[]
+  unassigned_students: number
+  available_vms: number
+  total_unassigned: number
+}
+
+export interface AutoAssignResult {
+  created: number
+  unassigned_students: number
+  assignments: Array<{ student: string; vm: string }>
+}
+
 

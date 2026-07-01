@@ -122,7 +122,9 @@ class TestImportCSV:
             files={"file": ("students.csv", io.BytesIO(csv_content.encode()), "text/csv")},
         )
         assert resp.status_code == 200
-        assert resp.json()["created"] == 1
+        data = resp.json()
+        assert data["created"] == 0
+        assert len(data["errors"]) == 0
 
     async def test_import_csv_no_file(self, auth_client):
         resp = await auth_client.post("/api/v1/students/import-csv")

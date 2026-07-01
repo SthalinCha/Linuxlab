@@ -173,10 +173,16 @@ async def _find_unassigned_students(
     """Find students without an active assignment in the given period."""
     query = select(Student).where(
         Student.deleted_at.is_(None),
+        Student.id.in_(
+            select(VMAssignment.student_id).where(
+                VMAssignment.period_id == period_id,
+            )
+        ),
         ~Student.id.in_(
             select(VMAssignment.student_id).where(
                 VMAssignment.period_id == period_id,
                 VMAssignment.released_at.is_(None),
+                VMAssignment.vm_id.isnot(None),
             )
         ),
     )

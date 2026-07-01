@@ -12,6 +12,7 @@ const Assignments = lazy(() => import('./pages/Assignments'))
 const Network = lazy(() => import('./pages/Network'))
 const Host = lazy(() => import('./pages/Host'))
 const Students = lazy(() => import('./pages/Students'))
+const Periods = lazy(() => import('./pages/Periods'))
 const Audit = lazy(() => import('./pages/Audit'))
 const Users = lazy(() => import('./pages/Users'))
 
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="network" element={<LazyPage><ErrorBoundary><ProtectedRoute roles={['admin']}><Network /></ProtectedRoute></ErrorBoundary></LazyPage>} />
         <Route path="host" element={<LazyPage><ErrorBoundary><ProtectedRoute roles={['admin']}><Host /></ProtectedRoute></ErrorBoundary></LazyPage>} />
         <Route path="students" element={<LazyPage><ErrorBoundary><ProtectedRoute roles={['profesor']}><Students /></ProtectedRoute></ErrorBoundary></LazyPage>} />
+        <Route path="periods" element={<LazyPage><ErrorBoundary><ProtectedRoute roles={['profesor']}><Periods /></ProtectedRoute></ErrorBoundary></LazyPage>} />
         <Route path="audit" element={<LazyPage><ErrorBoundary><ProtectedRoute roles={['admin']}><Audit /></ProtectedRoute></ErrorBoundary></LazyPage>} />
         <Route path="users" element={<LazyPage><ErrorBoundary><ProtectedRoute roles={['admin']}><Users /></ProtectedRoute></ErrorBoundary></LazyPage>} />
       </Route>

@@ -65,7 +65,12 @@ async def list_assignments(
     user: User = Depends(profesor_only),
 ):
     base = select(VMAssignment).where(VMAssignment.deleted_at.is_(None))
-    base = base.where(VMAssignment.vm.has(owner_id=user.id))
+    base = base.where(
+        or_(
+            VMAssignment.vm_id.is_(None),
+            VMAssignment.vm.has(owner_id=user.id),
+        )
+    )
     base = base.where(VMAssignment.student.has(Student.deleted_at.is_(None)))
     if period_id:
         base = base.where(VMAssignment.period_id == period_id)

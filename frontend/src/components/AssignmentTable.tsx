@@ -18,19 +18,26 @@ interface Props {
   onSelectAll: () => void
   onDeleteAssignment?: (id: number) => void
   onDeleteStudent?: (id: number, name: string) => void
+  onEditStudent?: (id: number, name: string) => void
   page?: number
   totalPages?: number
   totalItems?: number
   onPageChange?: (page: number) => void
+  variant?: 'assignments' | 'students'
 }
 
 export default function AssignmentTable({
   loading, filter, search, filteredAssignments, unassignedStudents,
   students, vms, selectedIds, stateColors, stateDots,
   getVmName, getStudentName, onToggleSelect, onSelectAll,
-  onDeleteAssignment, onDeleteStudent,
+  onDeleteAssignment, onDeleteStudent, onEditStudent,
   page, totalPages, totalItems, onPageChange,
+  variant = 'assignments',
 }: Props) {
+  const isStudentsMode = variant === 'students'
+  const tableTitle = isStudentsMode ? 'Estudiantes del Período' : 'Asignaciones Actuales'
+  const activeCount = filteredAssignments.filter(a => !a.released_at).length
+
   if (loading) {
     return <TableSkeleton rows={5} cols={7} />
   }
@@ -65,13 +72,22 @@ export default function AssignmentTable({
                     <td className="px-4 py-3 font-medium text-slate-800">{s.full_name}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">{s.email}</td>
                     <td className="px-4 py-3 w-12">
-                      {onDeleteStudent && (
-                        <button onClick={() => onDeleteStudent(s.id, s.full_name)}
-                          className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
-                          title="Eliminar estudiante">
-                          <i className="fas fa-trash-can text-sm"></i>
-                        </button>
-                      )}
+                      <div className="flex items-center gap-1">
+                        {isStudentsMode && onEditStudent && (
+                          <button onClick={() => onEditStudent(s.id, s.full_name)}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all"
+                            title="Editar estudiante">
+                            <i className="fas fa-pen-to-square text-sm"></i>
+                          </button>
+                        )}
+                        {onDeleteStudent && (
+                          <button onClick={() => onDeleteStudent(s.id, s.full_name)}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                            title="Eliminar estudiante">
+                            <i className="fas fa-trash-can text-sm"></i>
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -87,8 +103,14 @@ export default function AssignmentTable({
     return (
       <div className="flex flex-col items-center justify-center py-16 bg-white rounded-xl border border-slate-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
         <i className="fas fa-users-slash text-3xl text-slate-300 mb-3"></i>
-        <p className="text-sm font-medium text-slate-500">{search ? 'Sin resultados de búsqueda' : 'No hay asignaciones registradas'}</p>
-        <p className="text-xs text-slate-400 mt-1">Usa "Nueva Asignación" o "Importar CSV" para comenzar</p>
+        <p className="text-sm font-medium text-slate-500">
+          {search ? 'Sin resultados de búsqueda' : 'No hay asignación disponible para este período'}
+        </p>
+        <p className="text-xs text-slate-400 mt-1">
+          {isStudentsMode
+            ? 'Importa estudiantes mediante CSV o créalos manualmente para comenzar'
+            : 'Usa "Nueva Asignación" para asignar una VM a un estudiante o "Asignación Automática"'}
+        </p>
       </div>
     )
   }
@@ -98,9 +120,9 @@ export default function AssignmentTable({
       <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <i className="fas fa-table-list text-slate-400"></i>
-          <h2 className="text-sm font-semibold text-slate-700">Asignaciones Actuales</h2>
+          <h2 className="text-sm font-semibold text-slate-700">{tableTitle}</h2>
           <span className="inline-flex items-center justify-center min-w-[1.5rem] h-6 px-2 rounded-full text-[0.7rem] font-bold bg-indigo-100 text-indigo-700">
-            {filteredAssignments.filter(a => !a.released_at).length}
+            {activeCount}
           </span>
         </div>
       </div>
@@ -110,7 +132,7 @@ export default function AssignmentTable({
             <tr className="border-b border-slate-100">
               <th className="px-4 py-3.5 w-10">
                 <input type="checkbox"
-                  checked={filteredAssignments.length > 0 && selectedIds.size === filteredAssignments.filter(a => !a.released_at).length && filteredAssignments.some(a => !a.released_at)}
+                  checked={filteredAssignments.length > 0 && selectedIds.size === activeCount && filteredAssignments.some(a => !a.released_at)}
                   onChange={onSelectAll}
                   className="appearance-none w-4 h-4 border-2 border-slate-300 rounded cursor-pointer transition-all checked:bg-slate-900 checked:border-slate-900 checked:bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20fill%3D%22white%22%3E%3Cpath%20d%3D%22M12.207%204.793a1%201%200%20010%201.414l-5%205a1%201%200%2001-1.414%200l-2-2a1%201%200%20011.414-1.414L6.5%209.086l4.293-4.293a1%201%200%20011.414%200z%22%2F%3E%3C%2Fsvg%3E')] bg-contain bg-center bg-no-repeat" />
               </th>
@@ -121,7 +143,7 @@ export default function AssignmentTable({
               <th className="px-4 py-3.5 text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500 text-left">IP</th>
               <th className="px-4 py-3.5 text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500 text-left">Asignación</th>
               <th className="px-4 py-3.5 text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500 text-center w-16">Recreac.</th>
-              <th className="px-4 py-3.5 text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500 text-left w-20">Acción</th>
+              <th className="px-4 py-3.5 text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500 text-left w-24">Acción</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -130,7 +152,7 @@ export default function AssignmentTable({
               const vm = a.vm_id ? vms.find(v => v.id === a.vm_id) : null
               const vmName = vm?.name || a.vm_name_snapshot || getVmName(a.vm_id ?? 0)
               const isReleased = !!a.released_at
-              const isSelected = selectedIds.has(a.id)
+              const isSelected = selectedIds.has(isStudentsMode ? a.student_id : a.id)
               const state = vm?.current_state || (isReleased ? 'shut off' : 'unknown')
 
               return (
@@ -138,7 +160,7 @@ export default function AssignmentTable({
                   <td className="px-4 py-3.5">
                     {!isReleased && (
                       <input type="checkbox" checked={isSelected}
-                        onChange={() => onToggleSelect(a.id)}
+                        onChange={() => onToggleSelect(isStudentsMode ? a.student_id : a.id)}
                         className="appearance-none w-4 h-4 border-2 border-slate-300 rounded cursor-pointer transition-all checked:bg-slate-900 checked:border-slate-900 checked:bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20fill%3D%22white%22%3E%3Cpath%20d%3D%22M12.207%204.793a1%201%200%20010%201.414l-5%205a1%201%200%2001-1.414%200l-2-2a1%201%200%20011.414-1.414L6.5%209.086l4.293-4.293a1%201%200%20011.414%200z%22%2F%3E%3C%2Fsvg%3E')] bg-contain bg-center bg-no-repeat" />
                     )}
                   </td>
@@ -177,7 +199,24 @@ export default function AssignmentTable({
                     </span>
                   </td>
                   <td className="px-4 py-3.5">
-                    {!isReleased ? (
+                    {isStudentsMode ? (
+                      <div className="flex items-center gap-1">
+                        {onEditStudent && (
+                          <button onClick={() => onEditStudent(a.student_id, student?.full_name || getStudentName(a.student_id))}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all"
+                            title="Editar estudiante">
+                            <i className="fas fa-pen-to-square text-sm"></i>
+                          </button>
+                        )}
+                        {onDeleteStudent && (
+                          <button onClick={() => onDeleteStudent(a.student_id, student?.full_name || getStudentName(a.student_id))}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                            title="Eliminar estudiante">
+                            <i className="fas fa-trash-can text-sm"></i>
+                          </button>
+                        )}
+                      </div>
+                    ) : !isReleased ? (
                       <div className="flex items-center gap-1">
                         {onDeleteAssignment && (
                           <button onClick={() => onDeleteAssignment(a.id)}
@@ -214,7 +253,7 @@ export default function AssignmentTable({
         </table>
         {totalPages && totalPages > 1 && onPageChange && (
           <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50/30">
-            <span className="text-xs text-slate-500">{totalItems ?? 0} asignaciones en total</span>
+            <span className="text-xs text-slate-500">{totalItems ?? 0} registros en total</span>
             <div className="flex items-center gap-1.5">
               <button onClick={() => onPageChange((page ?? 1) - 1)} disabled={page === 1}
                 className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-200/60 disabled:opacity-30 disabled:cursor-not-allowed transition-all">

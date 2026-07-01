@@ -16,8 +16,9 @@ const ADMIN_NAV = [
 const PROFESOR_NAV = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/vms', label: 'Instancias' },
-  { to: '/assignments', label: 'Asignaciones' },
   { to: '/students', label: 'Estudiantes' },
+  { to: '/assignments', label: 'Asignaciones' },
+  { to: '/periods', label: 'Períodos' },
 ]
 
 export default function Layout() {
