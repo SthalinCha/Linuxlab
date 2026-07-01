@@ -17,7 +17,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
 
 _user_cache: dict[str, tuple[User, float]] = {}
-_USER_CACHE_TTL = int(os.getenv("USER_CACHE_TTL", "300"))
+_USER_CACHE_TTL = 0  # disabled to prevent stale user data
 
 
 def hash_password(password: str) -> str:

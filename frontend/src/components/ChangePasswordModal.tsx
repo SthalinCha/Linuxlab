@@ -28,8 +28,8 @@ export default function ChangePasswordModal({ open, onClose }: Props) {
       setError('Las contraseñas nuevas no coinciden')
       return
     }
-    if (newPassword.length < 6) {
-      setError('La nueva contraseña debe tener al menos 6 caracteres')
+    if (newPassword.length < 8) {
+      setError('La nueva contraseña debe tener al menos 8 caracteres')
       return
     }
     abortRef.current?.abort()

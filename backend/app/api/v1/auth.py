@@ -125,9 +125,18 @@ async def register_user(
 @router.post("/change-password")
 async def change_password(
     body: ChangePasswordRequest,
+    request: Request,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
+    # Reload user from DB to get fresh password_hash (avoid get_current_user cache issues)
+    result = await session.execute(
+        select(User).where(User.id == current_user.id)
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
+
     if not verify_password(body.current_password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Contraseña actual incorrecta")
 
