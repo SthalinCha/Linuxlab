@@ -69,9 +69,11 @@ export default function Users() {
           addToast('success', 'Usuario creado correctamente')
         } else if (editUser) {
           const body: UserUpdate = {
+            username: form.username || undefined,
             full_name: form.full_name || undefined,
             email: form.email || undefined,
             role_name: form.role_name,
+            ...(form.password ? { password: form.password } : {}),
           }
           await api.users.update(editUser.id, body)
           addToast('success', 'Usuario actualizado correctamente')
@@ -197,22 +199,12 @@ export default function Users() {
             </h2>
 
             <div className="space-y-3">
-              {showModal === 'create' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Usuario</label>
-                    <input type="text" value={form.username}
-                      onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-                      className="w-full border border-slate-300 rounded px-3 py-2 text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Contraseña</label>
-                    <input type="password" value={form.password}
-                      onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                      className="w-full border border-slate-300 rounded px-3 py-2 text-sm" />
-                  </div>
-                </>
-              )}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Usuario</label>
+                <input type="text" value={form.username}
+                  onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+                  className="w-full border border-slate-300 rounded px-3 py-2 text-sm" />
+              </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Nombre completo</label>
                 <input type="text" value={form.full_name}
@@ -234,6 +226,23 @@ export default function Users() {
                   <option value="admin">Admin</option>
                 </select>
               </div>
+              {showModal === 'create' && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Contraseña</label>
+                  <input type="password" value={form.password}
+                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                    className="w-full border border-slate-300 rounded px-3 py-2 text-sm" />
+                </div>
+              )}
+              {showModal === 'edit' && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Nueva Contraseña <span className="text-slate-400 font-normal">(opcional)</span></label>
+                  <input type="password" value={form.password}
+                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                    placeholder="Dejar en blanco para mantener actual"
+                    className="w-full border border-slate-300 rounded px-3 py-2 text-sm" />
+                </div>
+              )}
 
               <div className="flex justify-end gap-2 pt-2">
                 <button onClick={() => { setShowModal(null); setEditUser(null) }}

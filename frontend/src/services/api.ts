@@ -189,23 +189,14 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }, opts?.signal),
-    importCsv: async (file: File, periodId?: number, opts?: SignalOption): Promise<{ created: number; assigned: number; unassigned: number; errors: string[]; created_ids: number[] }> => {
+    importCsv: (file: File, periodId?: number, opts?: SignalOption) => {
       const formData = new FormData()
       formData.append('file', file)
       const url = `/students/import-csv${periodId ? `?period_id=${periodId}` : ''}`
-      const { access } = getTokens()
-      const headers: Record<string, string> = { Authorization: `Bearer ${access}` }
-      const res = await fetch(`${API_BASE}${url}`, {
+      return request<{ created: number; assigned: number; unassigned: number; errors: string[]; created_ids: number[] }>(url, {
         method: 'POST',
-        headers,
         body: formData,
-        ...(opts?.signal ? { signal: opts.signal } : {}),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }))
-        throw new Error(err.detail || 'Error al importar CSV')
-      }
-      return res.json()
+      }, opts?.signal)
     },
   },
   assignments: {
@@ -272,6 +263,8 @@ export const api = {
       request<{ message: string; released_count: number }>(`/periods/${id}/close`, { method: 'POST' }, opts?.signal),
     activate: (id: number, opts?: SignalOption) =>
       request<Period>(`/periods/${id}/activate`, { method: 'PUT' }, opts?.signal),
+    delete: (id: number, opts?: SignalOption) =>
+      request<{ message: string }>(`/periods/${id}`, { method: 'DELETE' }, opts?.signal),
   },
   audit: {
     list: (eventType?: string, limit = 50, offset = 0, opts?: SignalOption) => {

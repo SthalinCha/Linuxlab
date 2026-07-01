@@ -532,9 +532,6 @@ async def recreate_vm_range(
     )
     vm_map = {vm.name: vm for vm in result.scalars().all()}
 
-    lock_key = f"recreate-range:{user.id}"
-    if not await operation_lock.acquire(lock_key):
-        raise HTTPException(status_code=409, detail="Ya hay una recreación en progreso")
     try:
         async def _recreate_task(num: int) -> dict:
             name = f"vhost-{num}"

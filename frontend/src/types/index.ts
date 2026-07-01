@@ -185,9 +185,11 @@ export interface UserCreate {
 }
 
 export interface UserUpdate {
+  username?: string
   full_name?: string
   email?: string
   role_name?: string
+  password?: string
 }
 
 export interface Period {

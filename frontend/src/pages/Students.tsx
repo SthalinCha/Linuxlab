@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../services/api'
+import { useToast } from '../hooks/useToast'
 import ContentHeader from '../components/ContentHeader'
+import ConfirmModal from '../components/ConfirmModal'
 import { TableSkeleton } from '../components/Skeleton'
 import type { PeriodInfo, VMAssignment, VirtualMachine, Student, VMState } from '../types'
 
@@ -20,7 +22,10 @@ export default function Students() {
   const [loadingPeriods, setLoadingPeriods] = useState(true)
   const [loadingAssignments, setLoadingAssignments] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmDeletePeriod, setConfirmDeletePeriod] = useState<PeriodInfo | null>(null)
+  const [deletingPeriod, setDeletingPeriod] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const { addToast } = useToast()
 
   useEffect(() => {
     abortRef.current?.abort()
@@ -73,6 +78,24 @@ export default function Students() {
     loadAssignments(selectedPeriod)
     return () => controller.abort()
   }, [selectedPeriod])
+
+  const handleDeletePeriod = async (period: PeriodInfo) => {
+    setConfirmDeletePeriod(null)
+    setDeletingPeriod(true)
+    try {
+      await api.periods.delete(period.id)
+      addToast('success', `Período ${period.period_name} eliminado`)
+      if (selectedPeriod?.period_name === period.period_name) {
+        setSelectedPeriod(null)
+      }
+      const items = await api.assignments.periods()
+      setPeriodInfos(items)
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Error al eliminar período')
+    } finally {
+      setDeletingPeriod(false)
+    }
+  }
 
   const getStudentName = (id: number) =>
     students.find(s => s.id === id)?.full_name || `Estudiante #${id}`
@@ -129,15 +152,23 @@ export default function Students() {
               const isSelected = selectedPeriod?.period_name === p.period_name
               const isOpen = p.is_active && !p.closed_at
               return (
-                <button key={p.period_name} onClick={() => setSelectedPeriod(prev => prev?.period_name === p.period_name ? null : p)}
-                  className={`text-left bg-white rounded-xl border-2 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-5 transition-all hover:-translate-y-1 hover:shadow-lg ${isSelected ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200/60'}`}>
+                <div onClick={() => setSelectedPeriod(prev => prev?.period_name === p.period_name ? null : p)}
+                  className={`cursor-pointer bg-white rounded-xl border-2 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-5 transition-all hover:-translate-y-1 hover:shadow-lg ${isSelected ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200/60'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-lg font-bold text-slate-800">{p.period_name}</span>
-                    <span className={`text-[0.65rem] font-semibold uppercase px-2 py-0.5 rounded-full ${
-                      isOpen ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                    }`}>
-                      {isOpen ? 'Activo' : p.closed_at ? 'Cerrado' : 'Inactivo'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button onClick={(e) => { e.stopPropagation(); setConfirmDeletePeriod(p) }}
+                        disabled={deletingPeriod}
+                        className="text-xs text-red-400 hover:text-red-600 transition-colors p-1"
+                        title="Eliminar período">
+                        <i className="fas fa-trash-can"></i>
+                      </button>
+                      <span className={`text-[0.65rem] font-semibold uppercase px-2 py-0.5 rounded-full ${
+                        isOpen ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {isOpen ? 'Activo' : p.closed_at ? 'Cerrado' : 'Inactivo'}
+                      </span>
+                    </div>
                   </div>
                   <div className="text-xs text-slate-400 mb-3">
                     <i className="fas fa-calendar mr-1"></i>
@@ -148,7 +179,7 @@ export default function Students() {
                     <span className="font-semibold text-slate-700">{p.student_count}</span>
                     <span className="text-slate-400">estudiante{p.student_count !== 1 ? 's' : ''}</span>
                   </div>
-                </button>
+                </div>
               )
             })}
         </div>
@@ -192,7 +223,7 @@ export default function Students() {
                       const vm = a.vm_id ? vms.find(v => v.id === a.vm_id) : null
                       const vmName = vm?.name || a.vm_name_snapshot || getVmName(a.vm_id ?? 0)
                       const isReleased = !!a.released_at
-                      const state = vm?.current_state || 'unknown'
+                      const state = vm?.current_state || (isReleased ? 'shut off' : 'unknown')
                       return (
                         <tr key={a.id} className={`transition-colors hover:bg-slate-50/80 ${isReleased ? 'opacity-50' : ''}`}>
                           <td className="px-4 py-3.5 font-medium text-slate-800">{student?.full_name || getStudentName(a.student_id)}</td>
@@ -206,12 +237,11 @@ export default function Students() {
                             </span>
                           </td>
                           <td className="px-4 py-3.5">
-                            {vm ? (
+                            {vm || isReleased ? (
                               <div className="flex items-center gap-1.5">
                                 <span className={`w-2 h-2 rounded-full ${isReleased ? 'bg-slate-300' : stateDots[state] || 'bg-slate-300'}`}></span>
                                 <span className={`text-xs font-medium ${isReleased ? 'text-slate-400' : stateColors[state] || 'text-slate-400'}`}>
-                                  {isReleased ? 'Liberada' :
-                                   state === 'running' ? 'Activa' :
+                                  {state === 'running' ? 'Activa' :
                                    state === 'shut off' ? 'Apagada' :
                                    state === 'paused' ? 'Suspendida' : state}
                                 </span>
@@ -220,7 +250,7 @@ export default function Students() {
                               <span className="text-xs text-slate-400">—</span>
                             )}
                           </td>
-                          <td className="px-4 py-3.5 text-slate-500 font-mono text-xs">{vm?.ip_address || '—'}</td>
+                          <td className="px-4 py-3.5 text-slate-500 font-mono text-xs">{vm?.ip_address || (isReleased && vmName?.startsWith('vhost-') ? `192.168.122.${vmName.split('-').pop()}` : '—')}</td>
                           <td className="px-4 py-3.5 text-center">
                             <span className={`text-xs font-mono font-semibold ${a.recreation_count >= 3 ? 'text-amber-600' : 'text-slate-400'}`}>
                               {a.recreation_count}/3
@@ -247,6 +277,16 @@ export default function Students() {
           )}
         </div>
       )}
+
+      <ConfirmModal
+        open={confirmDeletePeriod !== null}
+        title="¿Eliminar período?"
+        message={`Se eliminarán permanentemente todas las asignaciones del período ${confirmDeletePeriod?.period_name}. Esto no se puede deshacer.`}
+        danger confirmLabel="Eliminar"
+        loading={deletingPeriod}
+        loadingLabel="Eliminando..."
+        onConfirm={() => confirmDeletePeriod && handleDeletePeriod(confirmDeletePeriod)}
+        onCancel={() => setConfirmDeletePeriod(null)} />
     </div>
   )
 }

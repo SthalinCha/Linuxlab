@@ -7,7 +7,7 @@ from app.database.session import get_session
 from app.models import Period
 from app.core.rbac import profesor_only
 from app.core.operation_lock import operation_lock
-from app.models import User
+from app.models import User, VMAssignment
 from app.services.period_service import get_period_code, period_dates, display_name
 from app.services.assignment_service import close_period as svc_close_period
 
@@ -149,6 +149,37 @@ async def activate_period(
         return period
     finally:
         operation_lock.release(lock_key)
+
+
+@router.delete("/{period_id}")
+async def delete_period(
+    period_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(profesor_only),
+):
+    period = await session.get(Period, period_id)
+    if not period:
+        raise HTTPException(status_code=404, detail="Período no encontrado")
+
+    # Delete all assignments for this period
+    from sqlalchemy import delete as sa_delete
+    await session.execute(
+        sa_delete(VMAssignment).where(VMAssignment.period_id == period_id)
+    )
+    await session.delete(period)
+    await session.commit()
+
+    from app.core.audit import log_event
+    await log_event(
+        session, "period_delete", user.username,
+        f"Eliminó período {period.code} con sus asignaciones",
+        "period", period_id,
+        ip_address=_ip(request),
+        commit=True,
+    )
+
+    return {"message": f"Período {period.code} eliminado"}
 
 
 async def _log_activate(

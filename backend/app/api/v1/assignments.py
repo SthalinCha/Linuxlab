@@ -9,7 +9,7 @@ from sqlalchemy import select, func, case, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_session
-from app.models import VMAssignment, Period, VirtualMachine
+from app.models import VMAssignment, Period, VirtualMachine, Student
 from app.core.rbac import profesor_only
 from app.core.operation_lock import operation_lock
 from app.core.dates import utc_iso
@@ -66,6 +66,7 @@ async def list_assignments(
 ):
     base = select(VMAssignment).where(VMAssignment.deleted_at.is_(None))
     base = base.where(VMAssignment.vm.has(owner_id=user.id))
+    base = base.where(VMAssignment.student.has(Student.deleted_at.is_(None)))
     if period_id:
         base = base.where(VMAssignment.period_id == period_id)
     elif active_only:
@@ -108,7 +109,7 @@ async def export_assignments(
     writer = csv.writer(output)
     writer.writerow([
         "ID", "Estudiante", "Email", "VM", "IP", "Periodo",
-        "Asignado", "Liberado", "Estado VM", "Notas",
+        "Asignado", "Liberado", "Estado VM",
     ])
 
     for a in assignments:
@@ -122,7 +123,6 @@ async def export_assignments(
             a.assigned_at.isoformat() if a.assigned_at else "",
             a.released_at.isoformat() if a.released_at else "",
             a.vm.current_state if a.vm else "",
-            a.notes or "",
         ])
 
     output.seek(0)

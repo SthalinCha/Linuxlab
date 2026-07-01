@@ -8,6 +8,7 @@ from app.core.security import get_current_user, hash_password
 from app.core.rbac import admin_only
 from app.core.config import EMAIL_DOMAIN
 from app.schemas import UserCreate, UserUpdate, UserResponse
+from app.models import VirtualMachine, Student, Course, VMAssignment, AuditLog
 
 router = APIRouter()
 
@@ -82,13 +83,13 @@ async def create_user(
     user: User = Depends(admin_only),
 ):
     existing = await session.execute(
-        select(User).where(User.username == body.username)
+        select(User).where(User.username == body.username, User.deleted_at.is_(None))
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="El nombre de usuario ya existe")
 
     existing_email = await session.execute(
-        select(User).where(User.email == body.email)
+        select(User).where(User.email == body.email, User.deleted_at.is_(None))
     )
     if body.email and existing_email.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="El correo electrónico ya existe")
@@ -135,6 +136,8 @@ async def update_user(
     if not u:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
+    if body.username is not None:
+        u.username = body.username
     if body.full_name is not None:
         u.full_name = body.full_name
     if body.email is not None:
@@ -145,6 +148,8 @@ async def update_user(
         if not role_obj:
             raise HTTPException(status_code=422, detail=f"Rol no válido: {body.role_name}")
         u.role_id = role_obj.id
+    if body.password is not None:
+        u.password_hash = hash_password(body.password)
 
     await session.commit()
 
@@ -169,12 +174,37 @@ async def delete_user(
     result = await session.execute(
         select(User)
         .options(selectinload(User.role))
-        .where(User.id == user_id, User.deleted_at.is_(None))
+        .where(User.id == user_id)
     )
     u = result.scalar_one_or_none()
     if not u:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    u.soft_delete()
+    course_count = await session.execute(
+        select(func.count()).select_from(select(Course).where(Course.profesor_id == user_id).subquery())
+    )
+    if (course_count.scalar() or 0) > 0:
+        raise HTTPException(status_code=409, detail="No se puede eliminar: el usuario tiene cursos asignados")
+
+    assignment_count = await session.execute(
+        select(func.count()).select_from(select(VMAssignment).where(VMAssignment.assigned_by == user_id).subquery())
+    )
+    if (assignment_count.scalar() or 0) > 0:
+        raise HTTPException(status_code=409, detail="No se puede eliminar: el usuario tiene asignaciones creadas")
+
+    await session.execute(
+        VirtualMachine.__table__.update().where(VirtualMachine.owner_id == user_id).values(owner_id=None)
+    )
+    await session.execute(
+        VMAssignment.__table__.update().where(VMAssignment.last_recreated_by == user_id).values(last_recreated_by=None)
+    )
+    await session.execute(
+        Student.__table__.update().where(Student.created_by == user_id).values(created_by=None)
+    )
+    await session.execute(
+        AuditLog.__table__.update().where(AuditLog.user_id == user_id).values(user_id=None)
+    )
+
+    await session.delete(u)
     await session.commit()
     return {"message": "Usuario eliminado correctamente"}

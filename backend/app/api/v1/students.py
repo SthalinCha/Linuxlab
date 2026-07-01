@@ -137,18 +137,16 @@ async def delete_student(
     user: User = Depends(profesor_only),
 ):
     student = await _get_student_or_404(session, student_id, user)
-    active_assignment = await session.execute(
-        select(VMAssignment).where(VMAssignment.student_id == student_id, VMAssignment.released_at.is_(None))
+    await session.execute(
+        VMAssignment.__table__.delete().where(VMAssignment.student_id == student_id)
     )
-    if active_assignment.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Estudiante tiene asignación activa")
-    student.soft_delete()
+    await session.delete(student)
     await session.commit()
-    await log_event(session, "student_deactivate", user.username,
-                    f"Desactivó estudiante {student.full_name}",
+    await log_event(session, "student_delete", user.username,
+                    f"Eliminó estudiante {student.full_name} y sus asignaciones",
                     "student", student.id, ip_address=_ip(request), user_id=user.id,
                     commit=True)
-    return {"message": "Estudiante desactivado"}
+    return {"message": "Estudiante eliminado"}
 
 
 @router.post("/import-csv")
@@ -164,25 +162,43 @@ async def import_csv(
         raise HTTPException(status_code=409, detail="Ya hay una importación en progreso")
     try:
         content = await file.read()
-        reader = csv.DictReader(StringIO(content.decode()))
-        rows = list(reader)
+        decoded = content.decode("utf-8-sig")  # utf-8-sig elimina BOM automáticamente
+        rows: list[dict[str, str | None]] = []
+        errors: list[str] = []
+
+        first_line = decoded.split("\n", 1)[0].strip().lower()
+        known_headers = {"full_name", "email", "student_code", "course_id"}
+        header_tokens = {t.strip() for t in first_line.split(",")}
+        has_headers = bool(header_tokens & known_headers)
+
+        if has_headers:
+            reader = csv.DictReader(StringIO(decoded))
+            for r in reader:
+                rows.append({k.strip(): v.strip() if v else "" for k, v in r.items()})
+        else:
+            raw_reader = csv.reader(StringIO(decoded))
+            for r in raw_reader:
+                if len(r) < 2 or not r[1].strip():
+                    errors.append(f"Fila inválida: {','.join(r)}")
+                    continue
+                rows.append({"full_name": r[0].strip(), "email": r[1].strip()})
+
         created = 0
         assigned = 0
         unassigned = 0
-        errors = []
 
         csv_student_ids: set[int] = set()
         new_ids: list[int] = []
 
         for row in rows:
-            email = row.get("email", "")
+            email = (row.get("email") or "").strip()
             if not email:
                 errors.append("Fila sin email")
                 continue
             try:
                 student_code = row.get("student_code") or email.split("@")[0]
                 student = Student(
-                    full_name=row["full_name"],
+                    full_name=row["full_name"],  # type: ignore[arg-type]
                     email=email,
                     student_code=student_code,
                     created_by=user.id,
@@ -195,6 +211,11 @@ async def import_csv(
                 created += 1
             except Exception as e:
                 errors.append(f"Error al insertar {email}: {e}")
+
+        # If all rows failed due to bad format, show a single clean message
+        if errors and len(errors) == len(rows) and all(e == "Fila sin email" for e in errors):
+            errors.clear()
+            errors.append("No se puede subir este CSV. El formato debe ser: nombre completo, correo")
 
         # Phase 2: auto-assign imported students if period_id provided
         if period_id and csv_student_ids:

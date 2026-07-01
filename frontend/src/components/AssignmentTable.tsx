@@ -16,7 +16,6 @@ interface Props {
   getStudentName: (id: number) => string
   onToggleSelect: (id: number) => void
   onSelectAll: () => void
-  onConfirmRelease: (id: number) => void
   onDeleteAssignment?: (id: number) => void
   onDeleteStudent?: (id: number, name: string) => void
   page?: number
@@ -28,7 +27,7 @@ interface Props {
 export default function AssignmentTable({
   loading, filter, search, filteredAssignments, unassignedStudents,
   students, vms, selectedIds, stateColors, stateDots,
-  getVmName, getStudentName, onToggleSelect, onSelectAll, onConfirmRelease,
+  getVmName, getStudentName, onToggleSelect, onSelectAll,
   onDeleteAssignment, onDeleteStudent,
   page, totalPages, totalItems, onPageChange,
 }: Props) {
@@ -132,7 +131,7 @@ export default function AssignmentTable({
               const vmName = vm?.name || a.vm_name_snapshot || getVmName(a.vm_id ?? 0)
               const isReleased = !!a.released_at
               const isSelected = selectedIds.has(a.id)
-              const state = vm?.current_state || 'unknown'
+              const state = vm?.current_state || (isReleased ? 'shut off' : 'unknown')
 
               return (
                 <tr key={a.id} className={`transition-colors hover:bg-slate-50/80 ${isSelected ? 'bg-sky-50' : ''} ${isReleased ? 'opacity-50' : ''}`}>
@@ -154,12 +153,11 @@ export default function AssignmentTable({
                     </span>
                   </td>
                   <td className="px-4 py-3.5">
-                    {vm ? (
+                    {vm || isReleased ? (
                       <div className="flex items-center gap-1.5">
                         <span className={`w-2 h-2 rounded-full ${isReleased ? 'bg-slate-300' : stateDots[state] || 'bg-slate-300'}`}></span>
                         <span className={`text-xs font-medium ${isReleased ? 'text-slate-400' : stateColors[state] || 'text-slate-400'}`}>
-                          {isReleased ? 'Liberada' :
-                           state === 'running' ? 'Activa' :
+                          {state === 'running' ? 'Activa' :
                            state === 'shut off' ? 'Apagada' :
                            state === 'paused' ? 'Suspendida' : state}
                         </span>
@@ -168,7 +166,7 @@ export default function AssignmentTable({
                       <span className="text-xs text-slate-400">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3.5 text-slate-500 font-mono text-xs">{vm?.ip_address || '—'}</td>
+                  <td className="px-4 py-3.5 text-slate-500 font-mono text-xs">{vm?.ip_address || (isReleased && vmName?.startsWith('vhost-') ? `192.168.122.${vmName.split('-').pop()}` : '—')}</td>
                   <td className="px-4 py-3.5 text-xs text-slate-400">
                     <i className="fas fa-calendar-day mr-1"></i>
                     {new Date(a.assigned_at).toLocaleDateString('es-PE', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -181,11 +179,6 @@ export default function AssignmentTable({
                   <td className="px-4 py-3.5">
                     {!isReleased ? (
                       <div className="flex items-center gap-1">
-                        <button onClick={() => onConfirmRelease(a.id)}
-                          className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
-                          title="Desvincular estudiante">
-                          <i className="fas fa-link-slash text-sm"></i>
-                        </button>
                         {onDeleteAssignment && (
                           <button onClick={() => onDeleteAssignment(a.id)}
                             className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"

@@ -27,12 +27,13 @@ interface Props {
   csvImporting: boolean
   onCreate: (e: FormEvent) => Promise<void>
   onImportCsv: (file: File) => void
-  onBulkRelease: () => void
   onBulkDelete: () => void
   onClearSelection: () => void
   onClosePeriod: () => void
   onActivatePeriod: () => void
   onExportCsv: () => void
+  showStudentList: boolean
+  onToggleStudentList: () => void
 }
 
 export default function AssignmentToolbar({
@@ -45,7 +46,8 @@ export default function AssignmentToolbar({
   importResult, onImportResultDismiss, onUndoImport,
   capacityWarning, onCapacityWarningDismiss,
   csvImporting,
-  onCreate, onImportCsv, onBulkRelease, onBulkDelete, onClearSelection, onClosePeriod, onActivatePeriod, onExportCsv,
+  onCreate, onImportCsv, onBulkDelete, onClearSelection, onClosePeriod, onActivatePeriod, onExportCsv,
+  showStudentList, onToggleStudentList,
 }: Props) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const hiddenInputRef = useRef<HTMLInputElement>(null)
@@ -116,6 +118,16 @@ export default function AssignmentToolbar({
           Exportar CSV
         </button>
 
+        <button type="button" onClick={onToggleStudentList}
+          className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+            showStudentList
+              ? 'text-white bg-zinc-900 hover:bg-zinc-800'
+              : 'text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+          }`}>
+          <i className="fas fa-user-graduate"></i>
+          {showStudentList ? 'Ver Asignaciones' : 'Listar Estudiantes'}
+        </button>
+
       </div>
 
       {/* Dropzone area */}
@@ -169,11 +181,6 @@ export default function AssignmentToolbar({
               <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
                 <i className="fas fa-check mr-1"></i>{selectedIds.size} seleccionado(s)
               </span>
-              <button onClick={onBulkRelease}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-all">
-                <i className="fas fa-link-slash"></i>
-                Desvincular
-              </button>
               <button onClick={onBulkDelete}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 transition-all">
                 <i className="fas fa-trash-can"></i>
@@ -191,18 +198,21 @@ export default function AssignmentToolbar({
       {/* Import results */}
       {importResult && (
         <div className="border-t border-slate-100 pt-3">
-          <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-sm">
-            <i className="fas fa-circle-check text-blue-500 mt-0.5"></i>
+          <div className={`flex items-start gap-3 px-4 py-3 rounded-xl text-sm ${
+            importResult.created === 0 && importResult.errors?.length > 0
+              ? 'bg-red-50 border border-red-200 text-red-700'
+              : 'bg-blue-50 border border-blue-200 text-blue-700'
+          }`}>
+            <i className={`mt-0.5 fas ${importResult.created === 0 && importResult.errors?.length > 0 ? 'fa-circle-exclamation text-red-500' : 'fa-circle-check text-blue-500'}`}></i>
             <div className="flex-1">
               <strong>{importResult.created}</strong> creados, <strong>{importResult.assigned}</strong> asignados
               {importResult.unassigned > 0 && (
                 <span className="ml-1 text-amber-600">({importResult.unassigned} sin VM)</span>
               )}
               {importResult.errors?.length > 0 && (
-                <ul className="mt-1 text-xs space-y-0.5">
-                  {importResult.errors.slice(0, 5).map((e, i) => <li key={i}><i className="fas fa-triangle-exclamation mr-1"></i>{e}</li>)}
-                  {importResult.errors.length > 5 && <li className="text-slate-400">...y {importResult.errors.length - 5} más</li>}
-                </ul>
+                <div className="mt-1 text-xs">
+                  {importResult.errors.slice(0, 1).map((e, i) => <div key={i}>{e}</div>)}
+                </div>
               )}
             </div>
             <div className="flex items-center gap-2">

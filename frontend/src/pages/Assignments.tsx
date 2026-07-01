@@ -18,19 +18,21 @@ export default function Assignments() {
   const action = useAsyncAction()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('todos')
+  const [showStudentList, setShowStudentList] = useState(false)
 
   const [showForm, setShowForm] = useState(false)
   const [formData, setFormData] = useState({ vm_id: 0, student_id: 0 })
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
-  const [confirmRelease, setConfirmRelease] = useState<number | null>(null)
-  const [confirmBulkRelease, setConfirmBulkRelease] = useState(false)
+
   const [confirmDeleteAssignment, setConfirmDeleteAssignment] = useState<number | null>(null)
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
   const [confirmClosePeriod, setConfirmClosePeriod] = useState(false)
   const [confirmActivatePeriod, setConfirmActivatePeriod] = useState(false)
   const [confirmUndoImport, setConfirmUndoImport] = useState(false)
   const [confirmDeleteStudent, setConfirmDeleteStudent] = useState<{ id: number; name: string } | null>(null)
+  const [selectedStudentIds, setSelectedStudentIds] = useState<Set<number>>(new Set())
+  const [confirmBulkDeleteStudents, setConfirmBulkDeleteStudents] = useState(false)
 
   const [importResult, setImportResult] = useState<{ created: number; assigned: number; unassigned: number; errors: string[]; created_ids: number[] } | null>(null)
   const [csvImporting, setCsvImporting] = useState(false)
@@ -73,33 +75,6 @@ export default function Assignments() {
         await loadData(activePeriodId || undefined)
       } catch (err) {
         addToast('error', err instanceof Error ? err.message : 'Error al crear asignación')
-      }
-    })
-  }
-
-  const handleRelease = async (id: number) => {
-    await action.execute(`release-${id}`, async () => {
-      try {
-        await api.assignments.release(id)
-        setConfirmRelease(null)
-        addToast('success', 'Asignación liberada')
-        await loadData(activePeriodId || undefined)
-      } catch (err) {
-        addToast('error', err instanceof Error ? err.message : 'Error al liberar asignación')
-      }
-    })
-  }
-
-  const handleBulkRelease = async () => {
-    await action.execute('bulk-release', async () => {
-      try {
-        const result = await api.assignments.bulkRelease(Array.from(selectedIds))
-        setConfirmBulkRelease(false)
-        setSelectedIds(new Set())
-        addToast('success', `${result.released} asignaciones liberadas`)
-        await loadData(activePeriodId || undefined)
-      } catch (err) {
-        addToast('error', err instanceof Error ? err.message : 'Error al liberar asignaciones')
       }
     })
   }
@@ -197,10 +172,29 @@ export default function Assignments() {
       try {
         await api.students.delete(studentId)
         addToast('success', `Estudiante "${studentName}" eliminado`)
-        await loadData(activePeriodId || undefined)
       } catch (err) {
         addToast('error', err instanceof Error ? err.message : 'Error al eliminar estudiante')
+      } finally {
+        await loadData(activePeriodId || undefined)
       }
+    })
+  }
+
+  const handleBulkDeleteStudents = async () => {
+    setConfirmBulkDeleteStudents(false)
+    await action.execute('bulk-delete-students', async () => {
+      let deleted = 0
+      for (const id of selectedStudentIds) {
+        try {
+          await api.students.delete(id)
+          deleted++
+        } catch (err) {
+          addToast('error', `Error al eliminar estudiante #${id}`)
+        }
+      }
+      setSelectedStudentIds(new Set())
+      addToast('success', `${deleted} estudiante${deleted !== 1 ? 's' : ''} eliminado${deleted !== 1 ? 's' : ''}`)
+      await loadData(activePeriodId || undefined)
     })
   }
 
@@ -251,6 +245,8 @@ export default function Assignments() {
   const studentsPerPeriod = Array.isArray(students) ? students.filter(s => assignedStudentIds.has(s.id)) : []
 
   const filteredAssignments = assignments.filter(a => {
+    const studentExists = students.some(s => s.id === a.student_id)
+    if (!studentExists) return false
     if (filter === 'asignados') return !a.released_at
     if (filter === 'sin_asignar') return false
     if (search) {
@@ -331,57 +327,117 @@ export default function Assignments() {
         onCreate={handleCreate}
         onImportCsv={handleImportCsv}
         onUndoImport={() => setConfirmUndoImport(true)}
-        onBulkRelease={() => setConfirmBulkRelease(true)}
         onBulkDelete={() => setConfirmBulkDelete(true)}
         onClearSelection={() => setSelectedIds(new Set())}
         onClosePeriod={() => setConfirmClosePeriod(true)}
         onActivatePeriod={() => setConfirmActivatePeriod(true)}
         onExportCsv={handleExportCsv}
+        showStudentList={showStudentList}
+        onToggleStudentList={() => setShowStudentList(!showStudentList)}
       />
 
-      <AssignmentTable
-        loading={loading}
-        filter={filter}
-        search={search}
-        filteredAssignments={filteredAssignments}
-        unassignedStudents={unassignedStudents}
-        students={students}
-        vms={vms}
-        selectedIds={selectedIds}
-        stateColors={stateColors}
-        stateDots={stateDots}
-        getVmName={getVmName}
-        getStudentName={getStudentName}
-        onToggleSelect={toggleSelect}
-        onSelectAll={handleSelectAll}
-        onConfirmRelease={(id) => setConfirmRelease(id)}
-        onDeleteAssignment={(id) => setConfirmDeleteAssignment(id)}
-        onDeleteStudent={(id, name) => setConfirmDeleteStudent({ id, name })}
-        page={page + 1}
-        totalPages={totalPages}
-        totalItems={totalAssignments}
-        onPageChange={(p) => goToPage(p - 1)}
-      />
-
-      <ConfirmModal
-        open={confirmRelease !== null}
-        title="¿Desvincular asignación?"
-        message="La VM quedará disponible para futuras asignaciones."
-        danger confirmLabel="Desvincular"
-        loading={confirmRelease !== null && action.isLoading(`release-${confirmRelease}`)}
-        loadingLabel="Desvinculando..."
-        onConfirm={() => confirmRelease !== null && handleRelease(confirmRelease)}
-        onCancel={() => setConfirmRelease(null)} />
-
-      <ConfirmModal
-        open={confirmBulkRelease}
-        title="¿Desvincular seleccionados?"
-        message={`Se liberarán ${selectedIds.size} asignaciones.`}
-        danger confirmLabel="Desvincular todo"
-        loading={action.isLoading('bulk-release')}
-        loadingLabel="Desvinculando..."
-        onConfirm={handleBulkRelease}
-        onCancel={() => setConfirmBulkRelease(false)} />
+      {showStudentList ? (
+        <div className="bg-white rounded-xl border border-slate-200/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-700">
+              <i className="fas fa-user-graduate mr-2 text-slate-400"></i>
+              Lista de Estudiantes
+            </h3>
+            <div className="flex items-center gap-3">
+              {selectedStudentIds.size > 0 && (
+                <>
+                  <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+                    {selectedStudentIds.size} seleccionado(s)
+                  </span>
+                  <button onClick={() => setConfirmBulkDeleteStudents(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 transition-all">
+                    <i className="fas fa-trash-can"></i>
+                    Eliminar seleccionados
+                  </button>
+                  <button onClick={() => setSelectedStudentIds(new Set())}
+                    className="text-xs text-slate-400 hover:text-slate-600 underline">
+                    Limpiar
+                  </button>
+                </>
+              )}
+              <span className="text-xs text-slate-400 bg-slate-100 px-2.5 py-1 rounded-full">{students.length} estudiante{students.length !== 1 ? 's' : ''}</span>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50/50">
+                  <th className="px-5 py-3.5 w-10">
+                    <input type="checkbox" checked={students.length > 0 && selectedStudentIds.size === students.length}
+                      onChange={() => {
+                        if (selectedStudentIds.size === students.length) setSelectedStudentIds(new Set())
+                        else setSelectedStudentIds(new Set(students.map(s => s.id)))
+                      }}
+                      className="appearance-none w-4 h-4 border-2 border-slate-300 rounded cursor-pointer transition-all checked:bg-slate-900 checked:border-slate-900 checked:bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20fill%3D%22white%22%3E%3Cpath%20d%3D%22M12.207%204.793a1%201%200%20010%201.414l-5%205a1%201%200%2001-1.414%200l-2-2a1%201%200%20011.414-1.414L6.5%209.086l4.293-4.293a1%201%200%20011.414%200z%22%2F%3E%3C%2Fsvg%3E')] bg-contain bg-center bg-no-repeat" />
+                  </th>
+                  <th className="px-5 py-3.5 text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500 text-left">Nombre</th>
+                  <th className="px-5 py-3.5 text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500 text-left">Email</th>
+                  <th className="px-5 py-3.5 text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500 text-center">Acción</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {students.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-5 py-12 text-center text-slate-400 text-sm">No hay estudiantes registrados</td>
+                  </tr>
+                ) : students.map(s => {
+                  const isSelected = selectedStudentIds.has(s.id)
+                  return (
+                    <tr key={s.id} className={`hover:bg-slate-50/80 transition-colors ${isSelected ? 'bg-sky-50' : ''}`}>
+                      <td className="px-5 py-3.5">
+                        <input type="checkbox" checked={isSelected}
+                          onChange={() => {
+                            const next = new Set(selectedStudentIds)
+                            if (next.has(s.id)) next.delete(s.id); else next.add(s.id)
+                            setSelectedStudentIds(next)
+                          }}
+                          className="appearance-none w-4 h-4 border-2 border-slate-300 rounded cursor-pointer transition-all checked:bg-slate-900 checked:border-slate-900 checked:bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20fill%3D%22white%22%3E%3Cpath%20d%3D%22M12.207%204.793a1%201%200%20010%201.414l-5%205a1%201%200%2001-1.414%200l-2-2a1%201%200%20011.414-1.414L6.5%209.086l4.293-4.293a1%201%200%20011.414%200z%22%2F%3E%3C%2Fsvg%3E')] bg-contain bg-center bg-no-repeat" />
+                      </td>
+                      <td className="px-5 py-3.5 font-medium text-slate-800">{s.full_name}</td>
+                      <td className="px-5 py-3.5 text-slate-500 text-xs">{s.email || <span className="text-slate-300 italic">—</span>}</td>
+                      <td className="px-5 py-3.5 text-center">
+                        <button onClick={() => setConfirmDeleteStudent({ id: s.id, name: s.full_name })}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 transition-all">
+                          <i className="fas fa-trash-can"></i>
+                          Eliminar
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <AssignmentTable
+          loading={loading}
+          filter={filter}
+          search={search}
+          filteredAssignments={filteredAssignments}
+          unassignedStudents={unassignedStudents}
+          students={students}
+          vms={vms}
+          selectedIds={selectedIds}
+          stateColors={stateColors}
+          stateDots={stateDots}
+          getVmName={getVmName}
+          getStudentName={getStudentName}
+          onToggleSelect={toggleSelect}
+          onSelectAll={handleSelectAll}
+          onDeleteAssignment={(id) => setConfirmDeleteAssignment(id)}
+          onDeleteStudent={(id, name) => setConfirmDeleteStudent({ id, name })}
+          page={page + 1}
+          totalPages={totalPages}
+          totalItems={totalAssignments}
+          onPageChange={(p) => goToPage(p - 1)}
+        />
+      )}
 
       <ConfirmModal
         open={confirmDeleteAssignment !== null}
@@ -430,6 +486,16 @@ export default function Assignments() {
         loadingLabel="Reabriendo..."
         onConfirm={handleActivate}
         onCancel={() => setConfirmActivatePeriod(false)} />
+
+      <ConfirmModal
+        open={confirmBulkDeleteStudents}
+        title="¿Eliminar estudiantes seleccionados?"
+        message={`Se eliminarán permanentemente ${selectedStudentIds.size} estudiante${selectedStudentIds.size !== 1 ? 's' : ''} y todas sus asignaciones. Esto no se puede deshacer.`}
+        danger confirmLabel="Eliminar todo"
+        loading={action.isLoading('bulk-delete-students')}
+        loadingLabel="Eliminando..."
+        onConfirm={handleBulkDeleteStudents}
+        onCancel={() => setConfirmBulkDeleteStudents(false)} />
 
       <ConfirmModal
         open={confirmDeleteStudent !== null}
